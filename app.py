@@ -92,7 +92,6 @@ _init()
 refresh_agent  = RefreshAgent()
 version_agent  = VersionGuardianAgent()
 version_agent.init_session()
-analysis_agent = PolicyAnalysisAgent(api_key="") if True else None  # key set at call time
 PolicyAnalysisAgent.init_session()
 
 
@@ -276,23 +275,24 @@ if run_a1:
         st.session_state.a1_status = "error"
         st.session_state.a1_phase  = "error"
 
-    st.session_state.a1_phase = "fetching_db"
-    db_prog   = st.progress(0, text="Starting DB data fetch...")
-    db_status = st.empty()
+    # Only proceed to DB fetch if OS succeeded
+    if st.session_state.a1_status != "error":
+        db_prog   = st.progress(0, text="Starting DB data fetch...")
+        db_status = st.empty()
 
-    def a1_db_cb(pct, msg):
-        db_prog.progress(min(pct, 1.0), text=msg)
-        db_status.caption(msg)
+        def a1_db_cb(pct, msg):
+            db_prog.progress(min(pct, 1.0), text=msg)
+            db_status.caption(msg)
 
-    try:
-        new_db = agent1.fetch_all_db_data(progress_callback=a1_db_cb)
-        st.session_state.db_df    = new_db
-        st.session_state.a1_phase = "done"
-        db_status.caption(f"✅ DB fetch complete — **{len(new_db)} versions** across all DB products")
-    except Exception as e:
-        st.error(f"❌ DB fetch error: {e}")
-        st.session_state.a1_status = "error"
-        st.session_state.a1_phase  = "error"
+        try:
+            new_db = agent1.fetch_all_db_data(progress_callback=a1_db_cb)
+            st.session_state.db_df    = new_db
+            st.session_state.a1_phase = "done"
+            db_status.caption(f"✅ DB fetch complete — **{len(new_db)} versions** across all DB products")
+        except Exception as e:
+            st.error(f"❌ DB fetch error: {e}")
+            st.session_state.a1_status = "error"
+            st.session_state.a1_phase  = "error"
 
     # Change detection
     changes = []
@@ -301,8 +301,11 @@ if run_a1:
     if st.session_state.old_db_df is not None:
         changes += agent1.detect_db_changes(st.session_state.old_db_df, st.session_state.db_df)
 
-    st.session_state.changes_log = changes
+    st.session_state.changes_log  = changes
     st.session_state.last_refresh = datetime.now()
+    # Reset Agent 5 analysis flags — new data means previous policy analysis is stale
+    st.session_state["a5_os_analysed"] = False
+    st.session_state["a5_db_analysed"] = False
 
     if st.session_state.a1_status != "error":
         st.session_state.a1_status = "done"

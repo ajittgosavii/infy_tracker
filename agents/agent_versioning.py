@@ -340,9 +340,13 @@ def _merge_frames(
 
         if key in existing_map:
             old = existing_map[key]
-            # Preserve recommendation if new fetch left it blank
+            # Preserve Agent 2 recommendation if new fetch left it blank
             if not str(row_dict.get("Recommendation", "")).strip():
                 row_dict["Recommendation"] = old.get("Recommendation", "")
+            # Preserve Agent 5 policy columns — never overwrite with blank
+            for col in ("Policy Recommendation", "Verdict"):
+                if not str(row_dict.get(col, "")).strip():
+                    row_dict[col] = old.get(col, "")
 
         merged_rows.append(row_dict)
 

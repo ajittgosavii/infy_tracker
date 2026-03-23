@@ -115,34 +115,54 @@ POLICY_QUESTIONS = [
 # ── Cost search targets ───────────────────────────────────────────────────────
 COST_SEARCH_TARGETS = [
     {
-        "vendor": "Microsoft",
-        "query": "Microsoft Windows Server 2012 2016 Extended Security Updates ESU pricing cost per server 2026",
-        "hint": "Find per-server annual ESU pricing for Windows Server 2012 R2, 2016. Include Azure Arc ESU free benefit."
+        "vendor": "Microsoft Windows ESU",
+        "query": "Microsoft Windows Server 2012 2016 Windows 10 Extended Security Updates ESU pricing cost per server device 2026",
+        "hint": "Find per-server ESU pricing for Windows Server 2012 R2, 2016. Windows 10 ESU Year 1/2/3 per-device cost. Include Azure Arc free ESU benefit."
     },
     {
         "vendor": "Microsoft SQL Server ESU",
-        "query": "Microsoft SQL Server 2012 2014 2016 Extended Security Updates pricing cost 2026",
-        "hint": "Find per-core ESU annual pricing for SQL Server 2012, 2014, 2016. Include Azure migration free ESU option."
+        "query": "Microsoft SQL Server 2012 2014 2016 Extended Security Updates ESU pricing cost per core 2026",
+        "hint": "Find per-core annual ESU pricing for SQL Server 2012, 2014, 2016. Include Azure migration free ESU option and SQL Server 2022 upgrade licensing cost."
     },
     {
-        "vendor": "Oracle Support",
-        "query": "Oracle Database annual support cost renewal pricing premier support 2026 per processor",
-        "hint": "Find Oracle annual support (22% of license) typical costs. Include Oracle Extended Support surcharge 10-20%."
+        "vendor": "Oracle Database Support",
+        "query": "Oracle Database annual support renewal premier extended support pricing cost per processor 2026",
+        "hint": "Find Oracle annual support cost (typically 22% of license). Include Extended Support surcharge 10-20%. Include Oracle to PostgreSQL migration cost savings estimate."
     },
     {
         "vendor": "Red Hat RHEL",
-        "query": "Red Hat Enterprise Linux RHEL subscription pricing per server 2026 standard premium",
-        "hint": "Find RHEL Standard and Premium subscription annual costs per socket-pair. Include RHEL for SAP pricing."
+        "query": "Red Hat Enterprise Linux RHEL subscription pricing per server socket 2026 standard premium",
+        "hint": "Find RHEL Standard (~$800/year) and Premium (~$1,300/year) subscription costs per socket-pair. Include RHEL for SAP pricing."
     },
     {
         "vendor": "IBM Db2 and AIX",
-        "query": "IBM Db2 annual support subscription pricing IBM AIX maintenance cost 2026",
-        "hint": "Find IBM Db2 and IBM AIX annual support/subscription pricing per processor or per user."
+        "query": "IBM Db2 annual support subscription pricing IBM AIX maintenance cost per processor 2026",
+        "hint": "Find IBM Db2 and IBM AIX annual support/maintenance pricing per processor or per PVU. Include IBM Passport Advantage pricing model."
     },
     {
-        "vendor": "Windows 10 ESU",
-        "query": "Windows 10 Extended Security Updates pricing cost per device year 1 2 3 2026",
-        "hint": "Find Windows 10 ESU per-device annual pricing for Year 1 (Nov 2025), Year 2 (Nov 2026), Year 3 (Nov 2027)."
+        "vendor": "SAP HANA and SAP ASE",
+        "query": "SAP HANA support maintenance annual pricing SAP Sybase ASE support cost 2026",
+        "hint": "Find SAP HANA Enterprise Edition support cost and SAP ASE (Sybase) annual maintenance pricing. Include SAP S-user licensing model."
+    },
+    {
+        "vendor": "Oracle MySQL and MariaDB",
+        "query": "MySQL Enterprise Edition subscription pricing MariaDB Enterprise subscription cost 2026",
+        "hint": "Find MySQL Enterprise Edition annual subscription cost per server. MariaDB Enterprise subscription pricing. Compare against free community editions."
+    },
+    {
+        "vendor": "MongoDB Atlas and Enterprise",
+        "query": "MongoDB Enterprise Advanced subscription pricing MongoDB Atlas cost per server 2026",
+        "hint": "Find MongoDB Enterprise Advanced annual per-server cost. MongoDB Atlas pricing tiers. Include community vs enterprise cost comparison."
+    },
+    {
+        "vendor": "Teradata Vantage",
+        "query": "Teradata Vantage database annual support maintenance pricing cost 2026",
+        "hint": "Find Teradata annual maintenance cost (typically 20-25% of license). Include Teradata Cloud Vantage pricing as migration option."
+    },
+    {
+        "vendor": "Cloud Migration Costs",
+        "query": "Azure SQL Managed Instance pricing AWS RDS PostgreSQL Google Cloud SQL annual cost per instance 2026",
+        "hint": "Find representative annual costs for Azure SQL MI, AWS RDS PostgreSQL, and Google Cloud SQL as cloud migration targets. Include compute + storage estimates."
     },
 ]
 
@@ -559,10 +579,34 @@ def render_agent5_tab(agent5: PolicyAnalysisAgent, key_ok: bool):
 
         os_empty = st.session_state.os_df.empty
         db_empty = st.session_state.db_df.empty
+        os_recs  = (st.session_state.os_df.get("Recommendation", pd.Series(dtype=str)) != "").sum() \
+                   if not os_empty else 0
+        db_recs  = (st.session_state.db_df.get("Recommendation", pd.Series(dtype=str)) != "").sum() \
+                   if not db_empty else 0
+        total_rows = len(st.session_state.os_df) + len(st.session_state.db_df)
+        recs_filled = os_recs + db_recs
 
         if os_empty and db_empty:
             st.warning("⚠️ No OS or DB data loaded yet. Run Agent 1 first, then come back to Agent 5.")
         else:
+            # Agent 2 prerequisite check
+            if recs_filled == 0:
+                st.warning(
+                    "⚠️ **Recommended: Run Agent 2 before Agent 5.** "
+                    "Agent 5 uses Agent 2's recommendations as context for its policy analysis. "
+                    "Running Agent 5 without Agent 2 will still work but the analysis will have less context."
+                )
+            elif recs_filled < total_rows * 0.5:
+                st.info(
+                    f"ℹ️ Agent 2 has filled {recs_filled}/{total_rows} recommendations. "
+                    "You can proceed, or run Agent 2 first for fuller context."
+                )
+            else:
+                st.success(
+                    f"✅ Agent 2 recommendations available ({recs_filled}/{total_rows} rows). "
+                    "Agent 5 will use these as context for its policy analysis."
+                )
+
             st.info(
                 f"Ready to analyse **{len(st.session_state.os_df)} OS entries** and "
                 f"**{len(st.session_state.db_df)} DB entries** against your "
