@@ -9,211 +9,311 @@ import json
 import pandas as pd
 from datetime import datetime
 
-# ── OS search targets — ALL OS (server + client + mobile) ───────────────────
+# ── OS search targets — ALL OS families (server + client + mobile + legacy) ──
 OS_SEARCH_TARGETS = [
     {
         "family": "Windows 11 Client",
-        "query": "Windows 11 all versions lifecycle support end dates mainstream extended site:microsoft.com",
-        "hint": "Include ALL Windows 11 versions: 21H2, 22H2, 23H2, 24H2, 25H2, 26H1 and all editions (Home, Pro, Enterprise, Education)"
+        "query": "Windows 11 all versions builds lifecycle support end dates microsoft.com",
+        "hint": "Include EVERY Windows 11 build: 21H2, 22H2, 23H2, 24H2, 25H2, 26H1 and all editions — Home, Pro, Enterprise, Education, IoT. Return one row per build per edition where dates differ."
     },
     {
         "family": "Windows 10 Client",
-        "query": "Windows 10 all versions lifecycle support end dates mainstream extended LTSC microsoft",
-        "hint": "Include 1507,1511,1607,1703,1709,1803,1809,1903,1909,2004,20H2,21H1,21H2,22H2 and all LTSC/LTSB editions"
+        "query": "Windows 10 all versions builds lifecycle support end dates LTSC LTSB microsoft.com",
+        "hint": "Include ALL Windows 10 builds: 1507,1511,1607,1703,1709,1803,1809,1903,1909,2004,20H2,21H1,21H2,22H2 and LTSC 2015,2016,2019,2021 editions. One row per build per edition."
+    },
+    {
+        "family": "Windows 8 and 8.1",
+        "query": "Windows 8 8.1 lifecycle support end dates mainstream extended microsoft.com",
+        "hint": "Include Windows 8, Windows 8.1, Windows 8.1 Update, Windows Embedded 8 Standard, Windows Embedded 8.1 Pro with all support end dates."
+    },
+    {
+        "family": "Windows 7",
+        "query": "Windows 7 all editions lifecycle support end dates mainstream extended ESU microsoft.com",
+        "hint": "Include Windows 7 SP1 Home, Professional, Enterprise, Ultimate. Include Extended Security Update (ESU) years 1,2,3 end dates."
+    },
+    {
+        "family": "Windows Vista and XP",
+        "query": "Windows Vista XP lifecycle support end dates microsoft.com",
+        "hint": "Include Windows XP all editions (Home, Pro, MCE, Tablet, Embedded), Windows Vista all editions with mainstream and extended support end dates."
     },
     {
         "family": "Windows Server",
         "query": "Windows Server all versions lifecycle mainstream extended support end dates microsoft.com",
-        "hint": "Include ALL Windows Server releases: 2003, 2003 R2, 2008, 2008 R2, 2012, 2012 R2, 2016, 2019, 2022, 2025 — Standard, Datacenter, Core, SAC editions"
+        "hint": "Include ALL Windows Server: 2003, 2003 R2, 2008, 2008 R2, 2012, 2012 R2, 2016, 2019, 2022, 2025 — Standard, Datacenter, Core, SAC editions."
     },
     {
         "family": "RHEL",
-        "query": "Red Hat Enterprise Linux RHEL all versions lifecycle support end dates redhat.com access.redhat.com",
-        "hint": "Include RHEL 4, 5, 6, 7, 8, 9, 10 — all editions. Capture Full Support End, Maintenance Support End, Extended Life Phase End dates"
+        "query": "Red Hat Enterprise Linux RHEL all versions lifecycle support end dates redhat.com",
+        "hint": "Include RHEL 4, 5, 6, 7, 8, 9, 10 — all editions. Capture Full Support End, Maintenance Support End, Extended Life Phase End dates for each."
     },
     {
         "family": "Ubuntu",
-        "query": "Ubuntu all LTS and non-LTS releases lifecycle end of support ESM dates ubuntu.com",
-        "hint": "Include Ubuntu 14.04, 16.04, 18.04, 20.04, 22.04, 24.04, 24.10, 25.04 LTS and interim releases. Include Desktop, Server, and Core editions. Capture Standard, ESM, and Legacy Support end dates"
+        "query": "Ubuntu all LTS non-LTS releases lifecycle end of support ESM dates ubuntu.com",
+        "hint": "Include Ubuntu 12.04, 14.04, 16.04, 18.04, 20.04, 22.04, 24.04 LTS and all interim releases 17.04 through 25.04. Standard, ESM, and Legacy Support end dates."
     },
     {
         "family": "SLES",
-        "query": "SUSE Linux Enterprise Server SLES all versions service packs lifecycle LTSS support end dates suse.com",
-        "hint": "Include SLES 11 SP4, SLES 12 SP1-SP5, SLES 15 SP1-SP7, SLES 16. Capture General Support End and LTSS end dates for each SP. Include SLES for SAP lifecycle dates"
+        "query": "SUSE Linux Enterprise Server all versions service packs lifecycle LTSS dates suse.com",
+        "hint": "Include SLES 10, 11 SP1-SP4, 12 SP1-SP5, 15 SP1-SP7, 16. General Support End and LTSS end dates for each SP. Include SLES for SAP lifecycle dates."
     },
     {
         "family": "Debian",
-        "query": "Debian GNU Linux all releases lifecycle security LTS ELTS end of life dates debian.org",
-        "hint": "Include Debian 8 Jessie through Debian 13 Trixie. Capture Security Support end, LTS end, and ELTS end dates for each release"
+        "query": "Debian Linux all releases lifecycle security LTS ELTS end of life dates debian.org",
+        "hint": "Include Debian 6 Squeeze through Debian 13 Trixie. Security Support end, LTS end, and ELTS end dates for each release."
     },
     {
         "family": "CentOS",
         "query": "CentOS all versions end of life dates centos.org CentOS Stream lifecycle",
-        "hint": "Include CentOS 6, 7, 8 (EOL Dec 2021) and CentOS Stream 8, 9, 10 with EOL dates"
+        "hint": "Include CentOS 5, 6, 7, 8 and CentOS Stream 8, 9, 10 with EOL dates. Note CentOS 8 early EOL December 2021."
     },
     {
         "family": "Rocky Linux",
-        "query": "Rocky Linux all versions lifecycle end of life support maintenance dates rockylinux.org",
-        "hint": "Include Rocky Linux 8, 9, 10 with full lifecycle dates. Rocky follows RHEL lifecycle"
+        "query": "Rocky Linux all versions lifecycle end of life support dates rockylinux.org",
+        "hint": "Include Rocky Linux 8.x, 9.x, 10.x with full lifecycle dates. Rocky mirrors RHEL lifecycle."
     },
     {
         "family": "AlmaLinux",
         "query": "AlmaLinux all versions lifecycle end of life support dates almalinux.org",
-        "hint": "Include AlmaLinux 8, 9, 10 with lifecycle dates. AlmaLinux follows RHEL lifecycle"
+        "hint": "Include AlmaLinux 8.x, 9.x, 10.x with lifecycle dates. AlmaLinux mirrors RHEL lifecycle."
     },
     {
         "family": "Oracle Linux",
         "query": "Oracle Linux all versions lifecycle premier extended support end dates oracle.com",
-        "hint": "Include Oracle Linux 6, 7, 8, 9, 10. Capture Premier Support end and Extended Support end for each version"
+        "hint": "Include Oracle Linux 6, 7, 8, 9, 10 with Premier Support end and Extended Support end dates."
     },
     {
         "family": "openSUSE and Fedora",
-        "query": "openSUSE Leap all versions Fedora Linux all releases lifecycle end of life dates 2026",
-        "hint": "Include openSUSE Leap 15.0–15.6 with EOL dates. Include Fedora Server and Workstation 38–42 with EOL dates (~13 months per release)"
+        "query": "openSUSE Leap Fedora Linux all versions lifecycle end of life dates 2026",
+        "hint": "Include openSUSE Leap 15.0 through 15.6. Include Fedora 34 through 42 with EOL dates (~13 months per Fedora release)."
+    },
+    {
+        "family": "Arch Linux and Gentoo",
+        "query": "Arch Linux Gentoo Linux rolling release lifecycle support policy versioning 2026",
+        "hint": "Include Arch Linux (rolling) and Gentoo (rolling) release model, support policy, and any versioned snapshots. Note their rolling-release nature."
     },
     {
         "family": "macOS",
         "query": "macOS all versions lifecycle support end dates Apple 2026",
-        "hint": "Include macOS 10.14 Mojave, 10.15 Catalina, 11 Big Sur, 12 Monterey, 13 Ventura, 14 Sonoma, 15 Sequoia, macOS 26 with Apple support end dates"
+        "hint": "Include macOS 10.13 High Sierra through macOS 15 Sequoia and macOS 26. Include support end dates from Apple security updates page."
     },
     {
         "family": "Oracle Solaris",
         "query": "Oracle Solaris all versions lifecycle support end of life dates oracle.com",
-        "hint": "Include Solaris 10 and Solaris 11.1 through 11.4 SRU versions with Premier and Extended support end dates"
+        "hint": "Include Solaris 9, 10 and Solaris 11.1 through 11.4 SRU versions with Premier and Extended support end dates."
     },
     {
         "family": "IBM AIX",
         "query": "IBM AIX all versions technology levels lifecycle end of service support dates ibm.com",
-        "hint": "Include AIX 6.1 TL9, AIX 7.1 TL5, AIX 7.2 TL5, AIX 7.3 TL0-TL4 with End of Service Pack Support and End of Service dates for each Technology Level"
+        "hint": "Include AIX 5.3, 6.1 TL9, 7.1 TL5, 7.2 TL5, 7.3 TL0-TL4 with End of Service Pack Support and End of Service dates for each Technology Level."
+    },
+    {
+        "family": "IBM i and IBM z/OS",
+        "query": "IBM i AS400 iSeries OS400 z/OS all versions lifecycle end of support dates ibm.com",
+        "hint": "Include IBM i 6.1, 7.1, 7.2, 7.3, 7.4, 7.5 and z/OS 2.1 through 2.5 with IBM end of support dates."
     },
     {
         "family": "HP-UX",
         "query": "HP-UX 11i all versions lifecycle support end dates hpe.com",
-        "hint": "Include HP-UX 11i v1, v2, v3 for both HP 9000 PA-RISC and Integrity Itanium servers with Mainstream and Extended support end dates"
+        "hint": "Include HP-UX 11i v1 (B.11.11), v2 (B.11.23), v3 (B.11.31) for HP 9000 PA-RISC and Integrity Itanium servers."
     },
     {
         "family": "FreeBSD",
-        "query": "FreeBSD all stable release branches lifecycle end of life support dates freebsd.org",
-        "hint": "Include FreeBSD 11.x, 12.x, 13.x, 14.x, 15.x — both RELEASE and STABLE branches with official EoL dates"
+        "query": "FreeBSD all release branches lifecycle end of life support dates freebsd.org",
+        "hint": "Include FreeBSD 11.x, 12.x, 13.x, 14.x, 15.x — RELEASE and STABLE branches with official EoL dates from freebsd.org/security."
     },
     {
         "family": "OpenVMS and Tru64",
-        "query": "OpenVMS VSI VMS Software Tru64 UNIX all versions lifecycle support end dates 2026",
-        "hint": "Include OpenVMS for Alpha, IA-64, x86-64 from VSI with support lifecycle dates. Include Tru64 UNIX 5.1A–5.1B-6 with HP/Compaq end-of-support dates"
+        "query": "OpenVMS VSI VMS Tru64 UNIX all versions lifecycle support end dates 2026",
+        "hint": "Include OpenVMS for Alpha, IA-64, x86-64 from VSI. Include Tru64 UNIX 5.1A through 5.1B-6 with HP/Compaq end-of-support dates."
     },
     {
         "family": "Android Enterprise",
-        "query": "Android enterprise recommended versions security update support end dates google.com 2026",
-        "hint": "Include Android 10 through Android 15 enterprise lifecycle and security update end dates from Google"
+        "query": "Android all versions enterprise security update support end dates google.com 2026",
+        "hint": "Include Android 9 through Android 15 enterprise lifecycle, security update end dates, and Google-guaranteed update policy."
     },
     {
         "family": "iOS and iPadOS",
-        "query": "iOS iPadOS all versions security update support end dates Apple 2026",
-        "hint": "Include iOS/iPadOS 15, 16, 17, 18 with Apple support and security update end dates"
+        "query": "iOS iPadOS all versions lifecycle security update end dates Apple 2026",
+        "hint": "Include iOS/iPadOS 13, 14, 15, 16, 17, 18, 19 with Apple support and security update end dates."
+    },
+    {
+        "family": "Windows Embedded and IoT",
+        "query": "Windows Embedded IoT Enterprise LTSC all versions lifecycle support end dates microsoft.com",
+        "hint": "Include Windows Embedded Standard 7, 8, Windows IoT Enterprise LTSC 2019, 2021, 2024 with all support end dates."
     },
 ]
 
-# ── DB search targets ────────────────────────────────────────────────────────
+# ── DB search targets — ALL databases enterprise + cloud + legacy + niche ────
 DB_SEARCH_TARGETS = [
     {
         "family": "SQL Server",
         "query": "Microsoft SQL Server all versions lifecycle mainstream extended end of support dates microsoft.com",
-        "hint": "Include SQL Server 2008,2008R2,2012,2014,2016,2017,2019,2022,2025 with all support phase dates"
+        "hint": "Include SQL Server 2000, 2005, 2008, 2008 R2, 2012, 2014, 2016, 2017, 2019, 2022, 2025 — all editions Standard/Enterprise/Express/Developer with all support phase dates."
     },
     {
         "family": "Oracle Database",
         "query": "Oracle Database all versions premier extended lifecycle support end dates oracle.com 2026",
-        "hint": "Include Oracle DB 10g,11g R1/R2,12c R1/R2,18c,19c,21c,23ai with all support phase dates"
+        "hint": "Include Oracle DB 9i, 10g R1/R2, 11g R1/R2, 12c R1/R2, 18c, 19c, 21c, 23ai — all editions SE/EE with all support phase dates."
     },
     {
         "family": "PostgreSQL",
         "query": "PostgreSQL all versions end of life support dates postgresql.org 2026",
-        "hint": "Include PostgreSQL 9.6 through 18 with each version's EOL date"
+        "hint": "Include PostgreSQL 9.2, 9.3, 9.4, 9.5, 9.6, 10, 11, 12, 13, 14, 15, 16, 17, 18 with each version's EOL date."
     },
     {
         "family": "MySQL",
         "query": "MySQL all versions lifecycle premier extended support end dates oracle.com mysql.com",
-        "hint": "Include MySQL 5.6, 5.7, 8.0, 8.4 LTS, 9.x LTS with all support phase dates"
+        "hint": "Include MySQL 5.1, 5.5, 5.6, 5.7, 8.0, 8.4 LTS, 9.0, 9.1, 9.7 LTS with all support phase dates including Oracle Extended Support."
     },
     {
         "family": "MariaDB",
         "query": "MariaDB all versions lifecycle end of life support dates mariadb.org 2026",
-        "hint": "Include MariaDB 10.3 through 11.x including all LTS versions with EOL dates"
-    },
-    {
-        "family": "MongoDB",
-        "query": "MongoDB all versions lifecycle end of life support dates mongodb.com 2026",
-        "hint": "Include MongoDB 3.6,4.0,4.2,4.4,5.0,6.0,7.0,8.0 with EOL dates"
-    },
-    {
-        "family": "Redis",
-        "query": "Redis all versions lifecycle end of life support dates redis.io 2026",
-        "hint": "Include Redis 5.0,6.0,6.2,7.0,7.2,7.4,7.8,8.0 with EOL dates"
+        "hint": "Include MariaDB 10.2 through 11.8 including all LTS versions (10.5, 10.6, 10.11, 11.4, 11.8) with EOL dates."
     },
     {
         "family": "IBM Db2",
         "query": "IBM Db2 all versions lifecycle end of support dates ibm.com 2026",
-        "hint": "Include IBM Db2 9.7,10.1,10.5,11.1,11.5 with all support end dates"
+        "hint": "Include IBM Db2 9.5, 9.7, 10.1, 10.5, 11.1, 11.5 — all editions (Advanced Enterprise, Enterprise, Standard) with all support end dates."
+    },
+    {
+        "family": "IBM Informix",
+        "query": "IBM Informix all versions lifecycle end of support dates ibm.com 2026",
+        "hint": "Include IBM Informix 11.50, 11.70, 12.10, 14.10 — all editions with mainstream and extended support end dates."
+    },
+    {
+        "family": "IBM IMS and IBM Netezza",
+        "query": "IBM IMS database IBM Netezza IBM PureData all versions lifecycle end of support dates ibm.com",
+        "hint": "Include IBM IMS 13, 14, 15 for mainframe. Include IBM Netezza / PureData System for Analytics versions with support end dates."
+    },
+    {
+        "family": "Sybase ASE",
+        "query": "SAP Sybase Adaptive Server Enterprise ASE all versions lifecycle end of support dates sap.com",
+        "hint": "Include Sybase ASE 12.5, 15.0, 15.5, 15.7, 16.0 SP01-SP04 with PAM (Product Availability Matrix) support end dates."
+    },
+    {
+        "family": "SAP HANA",
+        "query": "SAP HANA database all versions SPS lifecycle end of maintenance support dates sap.com",
+        "hint": "Include SAP HANA 1.0 SPS 09-12, SAP HANA 2.0 SPS 00 through SPS 08 with Mainstream and Extended Maintenance end dates."
+    },
+    {
+        "family": "SAP IQ and SAP ASE",
+        "query": "SAP IQ Sybase IQ SAP SQL Anywhere all versions lifecycle end of support dates sap.com",
+        "hint": "Include SAP IQ (Sybase IQ) 15.x, 16.x and SAP SQL Anywhere 16, 17 with PAM support end dates."
+    },
+    {
+        "family": "MongoDB",
+        "query": "MongoDB all versions lifecycle end of life support dates mongodb.com 2026",
+        "hint": "Include MongoDB 3.6, 4.0, 4.2, 4.4, 5.0, 6.0, 7.0, 8.0 with EOL dates."
+    },
+    {
+        "family": "Redis",
+        "query": "Redis all versions lifecycle end of life support dates redis.io 2026",
+        "hint": "Include Redis 5.0, 6.0, 6.2, 7.0, 7.2, 7.4, 7.8, 8.0 with EOL dates. Note Redis licensing change in 7.4."
     },
     {
         "family": "Cassandra",
         "query": "Apache Cassandra all versions lifecycle end of life support dates cassandra.apache.org",
-        "hint": "Include Cassandra 3.0,3.11,4.0,4.1,5.0 with EOL dates"
+        "hint": "Include Cassandra 2.1, 2.2, 3.0, 3.11, 4.0, 4.1, 5.0 with EOL dates."
     },
     {
-        "family": "Elasticsearch",
-        "query": "Elasticsearch Elastic Stack all versions end of life support dates elastic.co 2026",
-        "hint": "Include Elasticsearch 6.x,7.x,8.x versions with EOL dates"
-    },
-    {
-        "family": "SAP HANA",
-        "query": "SAP HANA database all versions lifecycle end of maintenance support dates sap.com",
-        "hint": "Include SAP HANA 1.0 SPS, 2.0 SPS revisions with Mainstream and Extended Maintenance dates"
-    },
-    {
-        "family": "Sybase SAP ASE",
-        "query": "SAP Sybase Adaptive Server Enterprise ASE all versions lifecycle end of support dates sap.com",
-        "hint": "Include Sybase ASE 15.0,15.5,15.7,16.0 versions with PAM support end dates"
+        "family": "Elasticsearch and OpenSearch",
+        "query": "Elasticsearch OpenSearch all versions end of life support dates elastic.co opensearch.org 2026",
+        "hint": "Include Elasticsearch 6.x, 7.x, 8.x and OpenSearch 1.x, 2.x with EOL dates."
     },
     {
         "family": "Teradata",
-        "query": "Teradata Database Vantage all versions lifecycle end of support dates teradata.com",
-        "hint": "Include Teradata Database 14.x,15.x,16.x and Vantage versions with support dates"
+        "query": "Teradata Database Vantage all versions lifecycle end of support dates teradata.com 2026",
+        "hint": "Include Teradata Database 13.x, 14.x, 15.x, 16.x, 17.x and Vantage 1.x, 2.x with end of support dates."
     },
     {
-        "family": "Amazon Aurora",
-        "query": "Amazon Aurora MySQL PostgreSQL compatible all versions end of support lifecycle aws.amazon.com 2026",
-        "hint": "Include Aurora MySQL 2.x,3.x and Aurora PostgreSQL major version support end dates"
+        "family": "Vertica and Greenplum",
+        "query": "Vertica database Greenplum all versions lifecycle end of support dates microfocus.com pivotal.io 2026",
+        "hint": "Include Vertica 9.x, 10.x, 11.x, 12.x and Greenplum 5.x, 6.x, 7.x with end of support dates."
     },
     {
-        "family": "Amazon RDS",
-        "query": "Amazon RDS engine versions end of support deprecation dates aws.amazon.com 2026",
-        "hint": "Include RDS SQL Server, MySQL, PostgreSQL, MariaDB, Oracle engine version deprecation dates"
+        "family": "Ingres and Actian",
+        "query": "Ingres Actian Vector Actian X database all versions lifecycle end of support dates actian.com",
+        "hint": "Include Ingres 10.x, 11.x and Actian Vector, Actian X (Ingres) versions with support end dates."
     },
     {
-        "family": "CouchDB and CouchBase",
-        "query": "Apache CouchDB Couchbase Server all versions lifecycle end of support dates 2026",
-        "hint": "Include CouchDB 2.x,3.x and Couchbase Server 6.x,7.x with EOL dates"
+        "family": "Progress OpenEdge and Firebird",
+        "query": "Progress OpenEdge database Firebird all versions lifecycle end of support dates progress.com firebirdsql.org",
+        "hint": "Include Progress OpenEdge 11.x, 12.x and Firebird 2.5, 3.0, 4.0, 5.0 with support end dates."
     },
     {
-        "family": "Neo4j",
-        "query": "Neo4j graph database all versions lifecycle end of life support dates neo4j.com 2026",
-        "hint": "Include Neo4j 3.5,4.x,5.x with all support end dates"
+        "family": "InterBase and Advantage Database",
+        "query": "Embarcadero InterBase Advantage Database Server all versions lifecycle end of support dates embarcadero.com",
+        "hint": "Include InterBase 2017, 2020, 2021 and Advantage Database Server 11.x, 12.x with support end dates."
     },
     {
-        "family": "InfluxDB and TimescaleDB",
-        "query": "InfluxDB TimescaleDB all versions lifecycle end of support dates influxdata.com 2026",
-        "hint": "Include InfluxDB 1.x,2.x,3.x and TimescaleDB versions with support dates"
+        "family": "SQLite and H2",
+        "query": "SQLite H2 database HSQLDB all versions current version support policy 2026",
+        "hint": "Include SQLite 3.x current version, H2 database 2.x, HSQLDB 2.x versioning and support policies."
     },
     {
-        "family": "Snowflake and Databricks",
-        "query": "Snowflake Databricks Runtime versions lifecycle end of support dates 2026",
-        "hint": "Include Databricks Runtime LTS versions with support end dates and Snowflake versioning policy"
+        "family": "Microsoft Access and FoxPro",
+        "query": "Microsoft Access all versions lifecycle support end dates Microsoft FoxPro Visual FoxPro end of life",
+        "hint": "Include Microsoft Access 2013, 2016, 2019, 2021, 2024 with support end dates. Include Visual FoxPro 9.0 EOL dates."
+    },
+    {
+        "family": "Amazon Aurora and RDS",
+        "query": "Amazon Aurora RDS all engine versions end of support lifecycle aws.amazon.com 2026",
+        "hint": "Include Aurora MySQL 2.x, 3.x and Aurora PostgreSQL major versions. RDS for SQL Server, MySQL, PostgreSQL, MariaDB, Oracle engine version deprecation dates."
+    },
+    {
+        "family": "Amazon DynamoDB and DocumentDB",
+        "query": "Amazon DynamoDB DocumentDB ElastiCache all versions lifecycle support dates aws.amazon.com 2026",
+        "hint": "Include DynamoDB versioning policy, DocumentDB 4.0, 5.0 support dates, ElastiCache for Redis and Memcached version EOL dates."
+    },
+    {
+        "family": "Google Cloud Spanner and BigQuery",
+        "query": "Google Cloud Spanner BigQuery AlloyDB versioning support lifecycle policy cloud.google.com 2026",
+        "hint": "Include Google Cloud Spanner, BigQuery, AlloyDB for PostgreSQL versioning and deprecation policy."
     },
     {
         "family": "Azure SQL and Cosmos DB",
-        "query": "Azure SQL Database Cosmos DB versions end of support lifecycle microsoft.com 2026",
-        "hint": "Include Azure SQL Database and Cosmos DB API version deprecation and support end dates"
+        "query": "Azure SQL Database Azure Cosmos DB all versions deprecation support lifecycle microsoft.com 2026",
+        "hint": "Include Azure SQL Database, Azure SQL Managed Instance, Azure Cosmos DB API versions (NoSQL, MongoDB, Cassandra, Gremlin, Table) deprecation dates."
+    },
+    {
+        "family": "CockroachDB and YugabyteDB",
+        "query": "CockroachDB YugabyteDB TiDB all versions lifecycle end of support dates 2026",
+        "hint": "Include CockroachDB 22.x, 23.x, 24.x, YugabyteDB 2.x, 2.20, TiDB 6.x, 7.x, 8.x with EOL dates."
+    },
+    {
+        "family": "CouchDB and Couchbase",
+        "query": "Apache CouchDB Couchbase Server all versions lifecycle end of support dates 2026",
+        "hint": "Include CouchDB 2.x, 3.x and Couchbase Server 6.x, 7.x with EOL dates."
+    },
+    {
+        "family": "Neo4j and Graph Databases",
+        "query": "Neo4j TigerGraph Amazon Neptune all versions lifecycle end of support dates 2026",
+        "hint": "Include Neo4j 3.5, 4.x, 5.x and TigerGraph 3.x, 4.x and Amazon Neptune engine versions with support end dates."
+    },
+    {
+        "family": "InfluxDB and TimescaleDB",
+        "query": "InfluxDB TimescaleDB QuestDB all versions lifecycle end of support dates 2026",
+        "hint": "Include InfluxDB 1.x, 2.x, 3.x, TimescaleDB 2.x, QuestDB versions with support dates."
+    },
+    {
+        "family": "Snowflake and Databricks",
+        "query": "Snowflake Databricks Runtime versions lifecycle deprecation end of support dates 2026",
+        "hint": "Include Databricks Runtime LTS versions (10.4 LTS, 11.3 LTS, 12.2 LTS, 13.3 LTS, 14.3 LTS) with support end dates. Snowflake versioning and deprecation policy."
+    },
+    {
+        "family": "Apache Hive and HBase",
+        "query": "Apache Hive HBase Hadoop all versions lifecycle end of life support dates 2026",
+        "hint": "Include Apache Hive 2.x, 3.x, 4.x, HBase 1.x, 2.x, Hadoop 2.x, 3.x with Apache EOL dates."
+    },
+    {
+        "family": "Exasol and SingleStore",
+        "query": "Exasol SingleStore MemSQL all versions lifecycle end of support dates 2026",
+        "hint": "Include Exasol 7.x, 8.x and SingleStore (MemSQL) 7.x, 8.x with support end dates."
+    },
+    {
+        "family": "SAP MaxDB and SQLBase",
+        "query": "SAP MaxDB Gupta SQLBase IBM solidDB all versions lifecycle end of support dates",
+        "hint": "Include SAP MaxDB 7.9 with support end dates. Gupta SQLBase 11.x, 12.x. IBM solidDB 7.x EOL dates."
     },
 ]
 

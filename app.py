@@ -19,6 +19,7 @@ from agents.agent_os        import OSDataAgent, OS_COLUMNS, DB_COLUMNS
 from agents.agent_db        import RecommendationAgent
 from agents.agent_refresh   import RefreshAgent
 from agents.agent_versioning import VersionGuardianAgent
+from agents.agent_analysis  import PolicyAnalysisAgent, render_agent5_tab
 from utils.excel_export     import export_to_excel
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -91,6 +92,8 @@ _init()
 refresh_agent  = RefreshAgent()
 version_agent  = VersionGuardianAgent()
 version_agent.init_session()
+analysis_agent = PolicyAnalysisAgent(api_key="") if True else None  # key set at call time
+PolicyAnalysisAgent.init_session()
 
 
 def badge(status: str) -> str:
@@ -138,7 +141,7 @@ with st.sidebar:
                         disabled=not key_ok,
                         help="Searches ~18 Server OS families and ~20 DB products via Claude AI web search")
 
-    st.caption("⏱ Estimated time: 3–6 minutes (38 web searches)")
+    st.caption("⏱ Estimated time: 8–14 minutes (60 web searches)")
     st.divider()
 
     # Agent 2
@@ -183,6 +186,21 @@ with st.sidebar:
     </div>""", unsafe_allow_html=True)
 
     version_agent.render_status_card()
+
+    st.divider()
+
+    # Agent 5
+    a5_status = st.session_state.get("a5_status", "idle")
+    a5_icon   = {"idle":"⚪","interviewing":"🔵","principles":"🔵",
+                 "costing":"🔵","ready_to_analyse":"🟡",
+                 "analysing":"🔵","done":"✅"}.get(a5_status,"⚪")
+    st.markdown(f"""<div class="agent-card" style="border-color:#7C3AED;">
+    <b>{a5_icon} Agent 5 — Policy Analysis</b>
+    <small style="display:block;margin-top:4px;color:#666">
+    Policy interview → Guiding principles → Live cost data → Consolidated recommendations<br>
+    Project: Apr 2026 → Jun 2028</small>
+    </div>""", unsafe_allow_html=True)
+    st.caption(f"Status: `{a5_status.upper()}`  |  Principles: {len(st.session_state.get('a5_principles',[]))}")
 
     st.divider()
     os_recs = (st.session_state.os_df["Recommendation"] != "").sum() if not os_empty else 0
@@ -362,9 +380,10 @@ if run_a2:
 
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_os, tab_db, tab_status, tab_history = st.tabs([
+tab_os, tab_db, tab_status, tab_history, tab_agent5 = st.tabs([
     "🖥️ OS Versions", "🗄️ DB Versions",
-    "📋 Agent Status & Log", "🛡️ Version History"
+    "📋 Agent Status & Log", "🛡️ Version History",
+    "🧠 Agent 5 — Policy Analysis"
 ])
 
 
@@ -589,11 +608,10 @@ with tab_status:
         icon1 = {"idle":"⚪","running":"🔵","done":"✅","error":"❌"}.get(s1,"⚪")
         st.markdown(f"""**{icon1} Agent 1 — Live Data Fetcher**
 - Status: `{s1.upper()}`
-- Fetches ALL **Server OS** & DB lifecycle data from the web
-- Tool: Claude AI + web\\_search (38 searches total)
-- **Server OS families (18):** Windows Server 2003–2025, RHEL 4–10, Ubuntu Server LTS 14.04–24.04, SLES 11–16 all SPs, Debian 8–13, CentOS 6–Stream 10, Rocky Linux 8–10, AlmaLinux 8–10, Oracle Linux 6–10, SLES for SAP, openSUSE Leap, Fedora Server, Oracle Solaris 10/11, IBM AIX 6.1–7.3 TL, HP-UX 11i, FreeBSD 11–15, OpenVMS, Tru64 UNIX
-- **DB products (20):** SQL Server, Oracle DB, PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Db2, Cassandra, Elasticsearch, SAP HANA, SAP ASE, Teradata, Aurora, RDS, CouchDB/Couchbase, Neo4j, InfluxDB/TimescaleDB, Snowflake/Databricks, Azure SQL/Cosmos DB
-- *Client OS excluded: Windows 10/11, macOS, Android, iOS*""")
+- Fetches ALL OS & DB lifecycle data from the web — no hardcoded data
+- Tool: Claude AI + web\\_search · **60 searches total**
+- **OS families (26):** Windows 11/10/8/7/Vista/XP, Windows Server 2003–2025, Windows Embedded/IoT, RHEL 4–10, Ubuntu 12.04–25.04, SLES 10–16, Debian 6–13, CentOS/Stream, Rocky/AlmaLinux, Oracle Linux, openSUSE/Fedora, Arch/Gentoo, macOS, Solaris, AIX, IBM i/z/OS, HP-UX, FreeBSD, OpenVMS/Tru64, Android, iOS/iPadOS
+- **DB products (34):** SQL Server, Oracle DB, PostgreSQL, MySQL, MariaDB, IBM Db2, IBM Informix, IBM IMS/Netezza, Sybase ASE, SAP HANA, SAP IQ, MongoDB, Redis, Cassandra, Elasticsearch/OpenSearch, Teradata, Vertica/Greenplum, Ingres/Actian, Progress/Firebird, InterBase, SQLite/H2, MS Access/FoxPro, Aurora/RDS, DynamoDB/DocumentDB, Google Spanner/BigQuery, Azure SQL/Cosmos DB, CockroachDB/YugabyteDB, CouchDB/Couchbase, Neo4j, InfluxDB/TimescaleDB, Snowflake/Databricks, Hive/HBase, Exasol/SingleStore, SAP MaxDB""")
 
     s2 = st.session_state.a2_status
     with ca2:
@@ -660,6 +678,12 @@ with tab_status:
     """)
 
 
+with tab_agent5:
+    # Recreate agent with live api_key
+    live_agent5 = PolicyAnalysisAgent(api_key=api_key) if key_ok else PolicyAnalysisAgent(api_key="dummy")
+    render_agent5_tab(live_agent5, key_ok)
+
+
 # ── Download Excel ─────────────────────────────────────────────────────────────
 st.divider()
 _, dl_col, _ = st.columns([1, 2, 1])
@@ -670,7 +694,9 @@ with dl_col:
         st.session_state.os_df,
         st.session_state.db_df,
         generated_at=ts_str,
-        version_history=version_agent.get_history()
+        version_history=version_agent.get_history(),
+        principles=st.session_state.get("a5_principles", []),
+        costs=st.session_state.get("a5_costs", {})
     )
     fname = f"INFY_Version_Tracker_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
