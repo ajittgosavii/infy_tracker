@@ -133,12 +133,12 @@ with st.sidebar:
     <b>🔍 Agent 1 — Live Data Fetcher</b><br>
     {badge(st.session_state.a1_status)}
     <small style="display:block;margin-top:4px;color:#666">
-    Fetches ALL <b>Server OS</b> &amp; DB lifecycle data from the internet — no hardcoded baseline</small>
+    Fetches ALL <b>OS &amp; DB</b> &amp; DB lifecycle data from the internet — no hardcoded baseline</small>
     </div>""", unsafe_allow_html=True)
 
     run_a1 = st.button("▶ Run Agent 1 — Fetch All Data", use_container_width=True,
                         disabled=not key_ok,
-                        help="Searches ~18 Server OS families and ~20 DB products via Claude AI web search")
+                        help="Searches 26 OS families + 34 DB products (60 total) via Claude AI web search")
 
     st.caption("⏱ Estimated time: 8–14 minutes (60 web searches)")
     st.divider()
@@ -213,7 +213,7 @@ st.markdown("""
 <div class="infy-header">
   <h1>🖥️ INFY Migration Version Lifecycle Tracker</h1>
   <p>Infosys Enterprise Architecture &nbsp;·&nbsp;
-     Live AI-Powered <strong>Server OS</strong> &amp; Database Lifecycle Intelligence &nbsp;·&nbsp;
+     Live AI-Powered <strong>OS &amp; DB</strong> &amp; Database Lifecycle Intelligence &nbsp;·&nbsp;
      All data fetched dynamically from the internet &nbsp;·&nbsp;
      Powered by Claude AI (Anthropic)</p>
 </div>
@@ -407,11 +407,12 @@ with tab_os:
     elif os_df.empty:
         st.markdown("""
         <div class="empty-state">
-          <h3>No Server OS data yet</h3>
-          <p>Run <strong>Agent 1</strong> from the sidebar to fetch all <strong>Server OS</strong> lifecycle data from the internet.<br>
-          Covers Windows Server, RHEL, Ubuntu Server LTS, SLES, Debian, CentOS, Rocky Linux, AlmaLinux,
-          Oracle Linux, openSUSE Leap, Fedora Server, Solaris, AIX, HP-UX, FreeBSD, OpenVMS and Tru64.<br>
-          <em>Client OS (Windows 10/11, macOS, Android, iOS) is intentionally excluded.</em></p>
+          <h3>No OS data yet</h3>
+          <p>Run <strong>Agent 1</strong> from the sidebar to fetch all OS lifecycle data from the internet.<br>
+          Covers <strong>Windows 11/10/8/7 Client</strong>, Windows Server 2003–2025, Windows Embedded/IoT,
+          RHEL, Ubuntu, SLES, Debian, CentOS, Rocky Linux, AlmaLinux, Oracle Linux,
+          openSUSE, Fedora, macOS, Solaris, AIX, IBM i/z/OS, HP-UX,
+          FreeBSD, OpenVMS, Tru64, Android, iOS/iPadOS.</p>
         </div>""", unsafe_allow_html=True)
     else:
         # Metrics

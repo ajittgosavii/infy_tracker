@@ -404,22 +404,44 @@ class OSDataAgent:
 
     # ── Fetch ALL OS data from web ────────────────────────────────────────────
     def fetch_all_os_data(self, progress_callback=None) -> pd.DataFrame:
-        all_rows = []
-        total = len(OS_SEARCH_TARGETS)
+        import time
+        all_rows  = []
+        skipped   = []
+        total     = len(OS_SEARCH_TARGETS)
 
         for idx, target in enumerate(OS_SEARCH_TARGETS):
             if progress_callback:
                 progress_callback(
                     idx / total,
-                    f"🔍 Fetching OS data: {target['family']}  ({idx+1}/{total})"
+                    f"🔍 Fetching OS: {target['family']}  ({idx+1}/{total})"
                 )
+
+            # Small delay between every search to stay within rate limits
+            if idx > 0:
+                time.sleep(1)
+
             rows = self._fetch_family(target, kind="OS")
-            all_rows.extend(rows)
-            if progress_callback:
-                progress_callback(
-                    (idx + 1) / total,
-                    f"✅ {target['family']}: {len(rows)} versions  |  running total: {len(all_rows)}"
-                )
+
+            if rows:
+                all_rows.extend(rows)
+                if progress_callback:
+                    progress_callback(
+                        (idx + 1) / total,
+                        f"✅ {target['family']}: {len(rows)} versions  |  total: {len(all_rows)}"
+                    )
+            else:
+                skipped.append(target["family"])
+                if progress_callback:
+                    progress_callback(
+                        (idx + 1) / total,
+                        f"⚠️ {target['family']}: skipped (no data returned) — continuing..."
+                    )
+
+        if skipped and progress_callback:
+            progress_callback(1.0,
+                f"⚠️ OS fetch complete — {len(all_rows)} rows. "
+                f"Skipped {len(skipped)}: {', '.join(skipped[:5])}"
+            )
 
         if not all_rows:
             return pd.DataFrame(columns=OS_COLUMNS)
@@ -429,28 +451,53 @@ class OSDataAgent:
             if col not in df.columns:
                 df[col] = ""
         df = df[OS_COLUMNS]
+        # Remove any error-flagged rows
         df = df[~df["OS Version"].str.startswith("[Fetch error", na=False)]
+        df = df[df["OS Version"].str.strip() != ""]
         df = df.drop_duplicates(subset=["OS Version"]).reset_index(drop=True)
         return df
 
     # ── Fetch ALL DB data from web ────────────────────────────────────────────
     def fetch_all_db_data(self, progress_callback=None) -> pd.DataFrame:
+        import time
         all_rows = []
-        total = len(DB_SEARCH_TARGETS)
+        skipped  = []
+        total    = len(DB_SEARCH_TARGETS)
 
         for idx, target in enumerate(DB_SEARCH_TARGETS):
             if progress_callback:
                 progress_callback(
                     idx / total,
-                    f"🔍 Fetching DB data: {target['family']}  ({idx+1}/{total})"
+                    f"🔍 Fetching DB: {target['family']}  ({idx+1}/{total})"
                 )
+
+            # 1.5s delay between every DB search — DB searches run back-to-back
+            # after OS completes, so extra breathing room prevents 429 rate limits
+            if idx > 0:
+                time.sleep(1.5)
+
             rows = self._fetch_family(target, kind="DB")
-            all_rows.extend(rows)
-            if progress_callback:
-                progress_callback(
-                    (idx + 1) / total,
-                    f"✅ {target['family']}: {len(rows)} versions  |  running total: {len(all_rows)}"
-                )
+
+            if rows:
+                all_rows.extend(rows)
+                if progress_callback:
+                    progress_callback(
+                        (idx + 1) / total,
+                        f"✅ {target['family']}: {len(rows)} versions  |  total: {len(all_rows)}"
+                    )
+            else:
+                skipped.append(target["family"])
+                if progress_callback:
+                    progress_callback(
+                        (idx + 1) / total,
+                        f"⚠️ {target['family']}: skipped — continuing..."
+                    )
+
+        if skipped and progress_callback:
+            progress_callback(1.0,
+                f"⚠️ DB fetch complete — {len(all_rows)} rows. "
+                f"Skipped {len(skipped)}: {', '.join(skipped[:5])}"
+            )
 
         if not all_rows:
             return pd.DataFrame(columns=DB_COLUMNS)
@@ -460,11 +507,16 @@ class OSDataAgent:
             if col not in df.columns:
                 df[col] = ""
         df = df[DB_COLUMNS]
+        # Remove error rows — Version = "Error" means the fetch failed for that family
+        df = df[df["Version"].str.strip().str.lower() != "error"]
+        df = df[df["Database"].str.strip() != ""]
         df = df.drop_duplicates(subset=["Database", "Version"]).reset_index(drop=True)
         return df
 
-    # ── Internal fetcher ──────────────────────────────────────────────────────
+    # ── Internal fetcher with retry + backoff ─────────────────────────────────
     def _fetch_family(self, target: dict, kind: str) -> list:
+        import time
+
         if kind == "OS":
             prompt = OS_FETCH_PROMPT.format(
                 family=target["family"],
@@ -482,29 +534,79 @@ class OSDataAgent:
             )
             fallback_cols = DB_COLUMNS
 
-        try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                tools=[{"type": "web_search_20250305", "name": "web_search"}],
-                messages=[{"role": "user", "content": prompt}]
-            )
-            text = "".join(
-                block.text for block in response.content if hasattr(block, "text")
-            )
-            return self._parse_json_array(text)
+        # Retry up to 3 times with exponential backoff for rate-limit (429) and
+        # transient errors (500, 529). Do NOT retry on 400 (bad request) or 401 (auth).
+        max_retries = 3
+        last_error  = None
 
+        for attempt in range(max_retries):
+            try:
+                # Small inter-request delay to avoid rate limits (increases per attempt)
+                if attempt > 0:
+                    wait = 2 ** attempt  # 2s, 4s
+                    time.sleep(wait)
+
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=4096,
+                    tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                text = "".join(
+                    block.text for block in response.content if hasattr(block, "text")
+                )
+                rows = self._parse_json_array(text)
+                # Return result only if we got valid rows
+                if rows:
+                    return rows
+                # Empty parse — try once more
+                last_error = "Empty JSON parse"
+                continue
+
+            except Exception as e:
+                last_error = str(e)
+                err_str    = str(e).lower()
+
+                # Don't retry on auth or bad-request errors — they won't recover
+                if "401" in err_str or "authentication" in err_str:
+                    break
+                if "400" in err_str and "web_search" not in err_str:
+                    # 400 on web_search may mean tool not available — try without it
+                    try:
+                        response = self.client.messages.create(
+                            model=self.model,
+                            max_tokens=4096,
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                        text = "".join(
+                            block.text for block in response.content if hasattr(block, "text")
+                        )
+                        rows = self._parse_json_array(text)
+                        if rows:
+                            return rows
+                    except Exception as e2:
+                        last_error = str(e2)
+                    break
+
+                # For 429 / 500 / 529 — wait longer and retry
+                if "429" in err_str or "rate" in err_str:
+                    time.sleep(10 * (attempt + 1))
+                elif "500" in err_str or "529" in err_str or "overload" in err_str:
+                    time.sleep(5 * (attempt + 1))
+
+        # All retries exhausted — return nothing (no error pollution row)
+        # The caller will log the skip and continue
+        return []
+
+    def _fetch_family_safe(self, target: dict, kind: str,
+                           progress_callback=None) -> tuple[list, str | None]:
+        """Wrapper that returns (rows, error_msg) — never raises."""
+        import time
+        try:
+            rows = self._fetch_family(target, kind)
+            return rows, None
         except Exception as e:
-            # Return a flagged error row so UI can show it
-            row = {col: "" for col in fallback_cols}
-            if kind == "OS":
-                row["OS Version"] = f"[Fetch error: {target['family']}]"
-                row["Notes"] = str(e)[:120]
-            else:
-                row["Database"] = target["family"]
-                row["Version"]  = "Error"
-                row["Notes"]    = str(e)[:120]
-            return [row]
+            return [], str(e)
 
     def _parse_json_array(self, text: str) -> list:
         text = text.strip()
