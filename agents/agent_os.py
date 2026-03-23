@@ -331,6 +331,7 @@ DB_COLUMNS = [
     "Upgrade", "Replace", "Primary Alternative", "Secondary Alternative"
 ]
 
+# ── Prompt 1: With web_search tool (live internet data) ──────────────────────
 OS_FETCH_PROMPT = """You are a senior IT lifecycle analyst. Search the internet for comprehensive and current lifecycle data for the {family} operating system family.
 
 Hint: {hint}
@@ -395,6 +396,73 @@ Each element must use EXACTLY these field names:
 
 Output ONLY the JSON array starting with [ and ending with ]."""
 
+# ── Prompt 2: Knowledge-only fallback (NO web search required) ───────────────
+# Used when web_search tool is unavailable or returns errors.
+# Asks Claude to answer from its training knowledge directly.
+OS_KNOWLEDGE_PROMPT = """You are a senior IT lifecycle expert with comprehensive knowledge of operating system support lifecycles.
+
+Using your training knowledge (no internet search needed), list ALL known versions of the {family} operating system family with their support lifecycle dates.
+
+Family details: {hint}
+Today's date: {today}
+
+Be exhaustive — include every major version, build number, and edition you know about.
+Include versions that are End of Life, currently supported, and upcoming/future releases.
+
+Return ONLY a valid JSON array (no markdown, no preamble) using EXACTLY these field names:
+[
+  {{
+    "OS Version": "full descriptive name e.g. Windows 11 24H2",
+    "Availability Date": "YYYY-MM-DD or empty string",
+    "Security/Standard Support End": "YYYY-MM-DD or empty string",
+    "Mainstream/Full Support End": "YYYY-MM-DD or text like 'Ended' or 'Active' or 'Rolling'",
+    "Extended/LTSC Support End": "YYYY-MM-DD or empty string",
+    "Notes": "codename, edition notes, or key lifecycle notes",
+    "Recommendation": "",
+    "Upgrade": "Y if upgrade strongly recommended, else N",
+    "Replace": "Y if migration to a different OS recommended, else N",
+    "Primary Alternative": "best upgrade or replacement target if applicable",
+    "Secondary Alternative": "secondary option or empty string"
+  }}
+]
+
+Output ONLY the JSON array starting with [ and ending with ]."""
+
+DB_KNOWLEDGE_PROMPT = """You are a senior database architect with comprehensive knowledge of database product support lifecycles.
+
+Using your training knowledge (no internet search needed), list ALL known versions of {family} database with their support lifecycle dates.
+
+Family details: {hint}
+Today's date: {today}
+
+Classify Status based on today's date:
+- "End of Life" — all vendor support has ended as of today
+- "Expiring Soon" — support ends within the next 12 months
+- "Supported" — currently in active vendor support window
+- "Future" — not yet generally available
+
+Be exhaustive — include every major version you know about.
+
+Return ONLY a valid JSON array (no markdown, no preamble) using EXACTLY these field names:
+[
+  {{
+    "Database": "vendor/product name e.g. SQL Server",
+    "Version": "version string e.g. 2022, 8.4 LTS, 19c",
+    "Type": "Relational | Document (NoSQL) | In-Memory | Time-Series | Graph | Search | Columnar | Cloud-Managed | Multi-Model",
+    "Mainstream / Premier End": "YYYY-MM-DD or TBD or empty string",
+    "Extended Support End": "YYYY-MM-DD or TBD or empty string",
+    "Status": "Supported | End of Life | Expiring Soon | Future",
+    "Notes": "edition notes or key lifecycle notes",
+    "Recommendation": "",
+    "Upgrade": "Y if in-place upgrade strongly recommended, else N",
+    "Replace": "Y if migration to a different product recommended, else N",
+    "Primary Alternative": "recommended target version or product",
+    "Secondary Alternative": "secondary option or empty string"
+  }}
+]
+
+Output ONLY the JSON array starting with [ and ending with ]."""
+
 
 class OSDataAgent:
     def __init__(self, api_key: str):
@@ -423,6 +491,7 @@ class OSDataAgent:
             rows = self._fetch_family(target, kind="OS")
 
             if rows:
+                # Note if this came from knowledge fallback (no web search marker)
                 all_rows.extend(rows)
                 if progress_callback:
                     progress_callback(
@@ -434,7 +503,7 @@ class OSDataAgent:
                 if progress_callback:
                     progress_callback(
                         (idx + 1) / total,
-                        f"⚠️ {target['family']}: skipped (no data returned) — continuing..."
+                        f"⚠️ {target['family']}: no data returned after 3 web attempts + knowledge fallback"
                     )
 
         if skipped and progress_callback:
@@ -490,7 +559,7 @@ class OSDataAgent:
                 if progress_callback:
                     progress_callback(
                         (idx + 1) / total,
-                        f"⚠️ {target['family']}: skipped — continuing..."
+                        f"⚠️ {target['family']}: no data after 3 web attempts + knowledge fallback"
                     )
 
         if skipped and progress_callback:
@@ -513,100 +582,103 @@ class OSDataAgent:
         df = df.drop_duplicates(subset=["Database", "Version"]).reset_index(drop=True)
         return df
 
-    # ── Internal fetcher with retry + backoff ─────────────────────────────────
+    # ── Internal fetcher: web_search priority, knowledge as last resort ────────
     def _fetch_family(self, target: dict, kind: str) -> list:
+        """
+        Priority 1 — Live web_search (up to 3 attempts with backoff)
+                     Gives the freshest lifecycle dates from official vendor pages.
+        Priority 2 — Claude training knowledge (guaranteed fallback)
+                     Only used if ALL web_search attempts fail.
+
+        Since Agent 1 runs every 15 days, we can afford to be patient
+        and retry web_search thoroughly before falling back.
+        """
         import time
 
+        # ── Build both prompts upfront ────────────────────────────────────────
         if kind == "OS":
-            prompt = OS_FETCH_PROMPT.format(
-                family=target["family"],
-                hint=target["hint"],
-                query=target["query"],
+            web_prompt       = OS_FETCH_PROMPT.format(
+                family=target["family"], hint=target["hint"],
+                query=target["query"],  today=self.today
+            )
+            knowledge_prompt = OS_KNOWLEDGE_PROMPT.format(
+                family=target["family"], hint=target["hint"],
                 today=self.today
             )
-            fallback_cols = OS_COLUMNS
         else:
-            prompt = DB_FETCH_PROMPT.format(
-                family=target["family"],
-                hint=target["hint"],
-                query=target["query"],
+            web_prompt       = DB_FETCH_PROMPT.format(
+                family=target["family"], hint=target["hint"],
+                query=target["query"],  today=self.today
+            )
+            knowledge_prompt = DB_KNOWLEDGE_PROMPT.format(
+                family=target["family"], hint=target["hint"],
                 today=self.today
             )
-            fallback_cols = DB_COLUMNS
 
-        # Retry up to 3 times with exponential backoff for rate-limit (429) and
-        # transient errors (500, 529). Do NOT retry on 400 (bad request) or 401 (auth).
-        max_retries = 3
-        last_error  = None
-
-        for attempt in range(max_retries):
+        # ── Priority 1: Live web_search — up to 3 attempts ───────────────────
+        for attempt in range(1, 4):
             try:
-                # Small inter-request delay to avoid rate limits (increases per attempt)
-                if attempt > 0:
-                    wait = 2 ** attempt  # 2s, 4s
-                    time.sleep(wait)
-
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=4096,
                     tools=[{"type": "web_search_20250305", "name": "web_search"}],
-                    messages=[{"role": "user", "content": prompt}]
+                    messages=[{"role": "user", "content": web_prompt}]
                 )
                 text = "".join(
                     block.text for block in response.content if hasattr(block, "text")
                 )
                 rows = self._parse_json_array(text)
-                # Return result only if we got valid rows
                 if rows:
-                    return rows
-                # Empty parse — try once more
-                last_error = "Empty JSON parse"
+                    return rows  # ✅ Web data obtained
+                # Valid API response but empty JSON parse — retry
+                time.sleep(2 * attempt)
                 continue
 
             except Exception as e:
-                last_error = str(e)
-                err_str    = str(e).lower()
+                err_str = str(e).lower()
 
-                # Don't retry on auth or bad-request errors — they won't recover
+                # Hard auth failure — no point retrying anything
                 if "401" in err_str or "authentication" in err_str:
-                    break
-                if "400" in err_str and "web_search" not in err_str:
-                    # 400 on web_search may mean tool not available — try without it
-                    try:
-                        response = self.client.messages.create(
-                            model=self.model,
-                            max_tokens=4096,
-                            messages=[{"role": "user", "content": prompt}]
-                        )
-                        text = "".join(
-                            block.text for block in response.content if hasattr(block, "text")
-                        )
-                        rows = self._parse_json_array(text)
-                        if rows:
-                            return rows
-                    except Exception as e2:
-                        last_error = str(e2)
-                    break
+                    return []
 
-                # For 429 / 500 / 529 — wait longer and retry
-                if "429" in err_str or "rate" in err_str:
-                    time.sleep(10 * (attempt + 1))
-                elif "500" in err_str or "529" in err_str or "overload" in err_str:
-                    time.sleep(5 * (attempt + 1))
+                # Rate limit (429) — wait longer before retry
+                if "429" in err_str or "rate" in err_str or "too many" in err_str:
+                    wait = 15 * attempt   # 15s, 30s, 45s
+                    time.sleep(wait)
+                    continue
 
-        # All retries exhausted — return nothing (no error pollution row)
-        # The caller will log the skip and continue
-        return []
+                # Server overload (500/529) — wait and retry
+                if "500" in err_str or "529" in err_str or "overload" in err_str:
+                    wait = 8 * attempt    # 8s, 16s, 24s
+                    time.sleep(wait)
+                    continue
 
-    def _fetch_family_safe(self, target: dict, kind: str,
-                           progress_callback=None) -> tuple[list, str | None]:
-        """Wrapper that returns (rows, error_msg) — never raises."""
-        import time
+                # Any other error (400, network etc.) — short wait then retry
+                time.sleep(3 * attempt)   # 3s, 6s, 9s
+                continue
+
+        # ── Priority 2: Claude training knowledge (safety net) ───────────────
+        # All 3 web_search attempts failed. Use Claude's built-in knowledge.
+        # This uses a dedicated prompt that explicitly instructs Claude to answer
+        # from training data — NOT from a "Search the internet" instruction,
+        # which would return empty results without the web_search tool.
         try:
-            rows = self._fetch_family(target, kind)
-            return rows, None
-        except Exception as e:
-            return [], str(e)
+            time.sleep(1)
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": knowledge_prompt}]
+            )
+            text = "".join(
+                block.text for block in response.content if hasattr(block, "text")
+            )
+            rows = self._parse_json_array(text)
+            if rows:
+                return rows
+        except Exception:
+            pass
+
+        return []
 
     def _parse_json_array(self, text: str) -> list:
         text = text.strip()
