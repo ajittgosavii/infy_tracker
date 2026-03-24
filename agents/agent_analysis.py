@@ -184,18 +184,22 @@ class PolicyAnalysisAgent:
             df["Policy Recommendation"] = ""
         if "Verdict" not in df.columns:
             df["Verdict"] = ""
+        if "Analysis Source" not in df.columns:
+            df["Analysis Source"] = ""
 
         gp_text   = "\n".join(f"{p['code']}: {p['title']} — {p['rule']}" for p in principles)
         cost_text = "\n".join(f"{v}: {s}" for v, s in costs.items())
         rows      = df.to_dict("records")
         total     = len(rows)
         batch     = 15
+        ai_count  = 0
+        rb_count  = 0
 
         for i in range(0, total, batch):
             chunk = rows[i:i+batch]
             if progress_cb:
                 progress_cb(i / total,
-                    f"🧠 Analysing {kind} rows {i+1}–{min(i+batch,total)} of {total}...")
+                    f"🧠 Claude AI analysing {kind} rows {i+1}–{min(i+batch,total)} of {total}...")
 
             if kind == "OS":
                 rows_text = "\n".join(
@@ -203,7 +207,7 @@ class PolicyAnalysisAgent:
                     f"Mainstream={r.get('Mainstream/Full Support End','')} | "
                     f"Extended={r.get('Extended/LTSC Support End','')} | "
                     f"Upgrade={r.get('Upgrade','')} | Replace={r.get('Replace','')} | "
-                    f"A2={r.get('Recommendation','')[:60]}"
+                    f"A2={r.get('Recommendation','')[:80]}"
                     for r in chunk
                 )
             else:
@@ -213,45 +217,78 @@ class PolicyAnalysisAgent:
                     f"Mainstream={r.get('Mainstream / Premier End','')} | "
                     f"Extended={r.get('Extended Support End','')} | "
                     f"Replace={r.get('Replace','')} | Alt={r.get('Primary Alternative','')} | "
-                    f"A2={r.get('Recommendation','')[:60]}"
+                    f"A2={r.get('Recommendation','')[:80]}"
                     for r in chunk
                 )
 
             prompt = (
                 f"GUIDING PRINCIPLES:\n{gp_text}\n\n"
                 f"VENDOR COSTS:\n{cost_text}\n\n"
-                f"PROJECT: 1 Apr 2026 → 30 Jun 2028  |  Today: {TODAY}\n\n"
+                f"PROJECT WINDOW: 1 Apr 2026 → 30 Jun 2028  |  Today: {TODAY}\n\n"
                 f"RECORDS TO ANALYSE:\n{rows_text}\n\n"
-                f"For each KEY return a Policy Recommendation starting with exactly one of:\n"
-                f"CRITICAL / UPGRADE NOW / EXTEND + PLAN / REPLACE / CLOUD MIGRATE / MONITOR\n"
-                f"Format: VERDICT — Reason. Cost note if relevant. GP reference.\n\n"
-                f"Return ONLY a JSON object: {{\"KEY_value\": \"VERDICT — ...\", ...}}"
+                f"For each KEY produce a Policy Recommendation that:\n"
+                f"1. Starts with exactly one verdict: CRITICAL / UPGRADE NOW / EXTEND + PLAN / REPLACE / CLOUD MIGRATE / MONITOR\n"
+                f"2. Gives a specific reason citing support dates and project window\n"
+                f"3. References a GP code (GP-01 etc.)\n"
+                f"4. Includes cost context where relevant (e.g. ESU cost, cloud migration cost)\n\n"
+                f"Return ONLY valid JSON: {{\"EXACT_KEY_VALUE\": \"VERDICT — reason. Cost: X. (GP-N)\", ...}}"
             )
 
-            try:
-                resp = self.client.messages.create(
-                    model=self.model, max_tokens=3000,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                text = resp.content[0].text.strip()
-                if "```" in text:
-                    text = text.split("```json")[-1].split("```")[0] if "```json" in text \
-                           else text.split("```")[1].split("```")[0]
-                s, e = text.find("{"), text.rfind("}")
-                recs = json.loads(text[s:e+1]) if s != -1 and e > s else {}
-            except Exception:
-                recs = {}
+            recs       = {}
+            api_worked = False
+            last_error = None
 
+            # Attempt 1: Claude AI
+            for attempt in range(2):
+                try:
+                    import time
+                    if attempt > 0:
+                        time.sleep(2)
+                    resp = self.client.messages.create(
+                        model=self.model,
+                        max_tokens=4000,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    text = resp.content[0].text.strip()
+                    if "```" in text:
+                        text = text.split("```json")[-1].split("```")[0] if "```json" in text \
+                               else text.split("```")[1].split("```")[0]
+                    s, e = text.find("{"), text.rfind("}")
+                    parsed = json.loads(text[s:e+1]) if s != -1 and e > s else {}
+                    if parsed:
+                        recs = parsed
+                        api_worked = True
+                        break
+                except Exception as ex:
+                    last_error = str(ex)
+                    continue
+
+            if not api_worked and progress_cb:
+                progress_cb(i / total,
+                    f"⚠️ Claude API failed for batch {i+1}–{min(i+batch,total)}: "
+                    f"{str(last_error)[:60]} — using rule-based fallback")
+
+            # Apply results — AI where available, rule-based where not
             for j, row in enumerate(chunk):
                 key = row["OS Version"] if kind == "OS" \
                       else f"{row['Database']} {row['Version']}"
-                rec = recs.get(key, self._rule_based(row, kind))
+                if key in recs:
+                    rec    = recs[key]
+                    source = "Claude AI"
+                    ai_count += 1
+                else:
+                    rec    = self._rule_based(row, kind)
+                    source = "Rule-based"
+                    rb_count += 1
                 verdict = next((v for v in VERDICTS if rec.upper().startswith(v)), "MONITOR")
                 df.at[i + j, "Policy Recommendation"] = rec
-                df.at[i + j, "Verdict"] = verdict
+                df.at[i + j, "Verdict"]               = verdict
+                df.at[i + j, "Analysis Source"]        = source
 
         if progress_cb:
-            progress_cb(1.0, f"✅ {kind} policy analysis complete.")
+            progress_cb(1.0,
+                f"✅ {kind} analysis complete — "
+                f"Claude AI: {ai_count} rows | Rule-based fallback: {rb_count} rows")
         return df
 
     def _rule_based(self, row, kind):

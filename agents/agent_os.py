@@ -63,9 +63,11 @@ class OSDataAgent:
     def fetch_updates(self, progress_callback=None) -> dict:
         """
         Checks the internet for ANY changes to lifecycle dates.
-        Returns a dict of updates keyed by product/version name.
+        Returns a dict: family → result. Errors surfaced in progress messages.
         """
-        updates  = {}
+        updates    = {}
+        ai_success = 0
+        ai_failed  = 0
         all_targets = (
             [("OS", f, q) for f, q in OS_CHECK_TARGETS] +
             [("DB", f, q) for f, q in DB_CHECK_TARGETS]
@@ -76,17 +78,47 @@ class OSDataAgent:
             if progress_callback:
                 progress_callback(
                     idx / total,
-                    f"🔍 Checking for changes: {family}  ({idx+1}/{total})"
+                    f"🔍 Calling Claude AI + web_search: {family}  ({idx+1}/{total})"
                 )
             try:
                 result = self._check_changes(kind, family, query)
+                ai_success += 1
                 if result.get("changes"):
                     updates[family] = result
+                    if progress_callback:
+                        progress_callback(
+                            (idx+1) / total,
+                            f"✅ {family}: {len(result['changes'])} change(s) found"
+                        )
+                else:
+                    if progress_callback:
+                        progress_callback(
+                            (idx+1) / total,
+                            f"✅ {family}: no changes — baseline data is current"
+                        )
             except Exception as e:
-                updates[family] = {"error": str(e), "changes": []}
+                ai_failed += 1
+                err_msg = str(e)[:80]
+                updates[family] = {"error": err_msg, "changes": []}
+                if progress_callback:
+                    progress_callback(
+                        (idx+1) / total,
+                        f"⚠️ {family}: Claude AI error — {err_msg}"
+                    )
 
         if progress_callback:
-            progress_callback(1.0, f"✅ Internet check complete — {len(updates)} families with updates found.")
+            if ai_failed == total:
+                progress_callback(1.0,
+                    f"❌ Agent 1 complete — Claude AI failed all {total} checks. "
+                    f"Verify API key at console.anthropic.com")
+            elif ai_failed > 0:
+                progress_callback(1.0,
+                    f"⚠️ Agent 1 complete — Claude AI: {ai_success} succeeded, "
+                    f"{ai_failed} failed. {len([u for u in updates.values() if u.get('changes')])} families updated.")
+            else:
+                progress_callback(1.0,
+                    f"✅ Agent 1 complete — Claude AI ran {ai_success} web checks. "
+                    f"{len([u for u in updates.values() if u.get('changes')])} families had date changes.")
 
         return updates
 

@@ -76,19 +76,29 @@ class RecommendationAgent:
     def generate_os_recommendations(self, df: pd.DataFrame,
                                      progress_callback=None) -> pd.DataFrame:
         df = df.copy()
-        rows = df.to_dict("records")
-        recs = {}
-        total = len(rows)
+        rows      = df.to_dict("records")
+        recs      = {}
+        total     = len(rows)
+        ai_count  = 0
+        rb_count  = 0
 
         for i in range(0, total, self.batch_size):
             batch = rows[i:i + self.batch_size]
             if progress_callback:
                 progress_callback(
                     i / total,
-                    f"🤖 Agent 2 — OS: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
+                    f"🤖 Claude AI (Haiku) — OS: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
                 )
-            batch_recs = self._recommend_batch(batch, kind="OS")
+            batch_recs, used_ai = self._recommend_batch(batch, kind="OS")
             recs.update(batch_recs)
+            if used_ai:
+                ai_count += len(batch)
+            else:
+                rb_count += len(batch)
+                if progress_callback:
+                    progress_callback(i / total,
+                        f"⚠️ OS batch {i+1}–{min(i+self.batch_size,total)}: "
+                        f"Claude AI failed — rule-based fallback used")
 
         for idx, row in df.iterrows():
             key = row["OS Version"]
@@ -96,26 +106,45 @@ class RecommendationAgent:
                 df.at[idx, "Recommendation"] = recs[key]
 
         if progress_callback:
-            progress_callback(1.0, f"✅ OS recommendations done — {len(df)} rows processed")
+            if rb_count == total:
+                progress_callback(1.0,
+                    f"❌ OS recs: Claude AI failed all batches — {rb_count} rows used rule-based. "
+                    f"Check API key quota.")
+            elif rb_count > 0:
+                progress_callback(1.0,
+                    f"⚠️ OS recs: Claude AI {ai_count} rows ✅ | Rule-based {rb_count} rows ⚠️")
+            else:
+                progress_callback(1.0,
+                    f"✅ OS recs complete — Claude AI analysed all {ai_count} rows")
         return df
 
     # ── DB recommendations ────────────────────────────────────────────────────
     def generate_db_recommendations(self, df: pd.DataFrame,
                                      progress_callback=None) -> pd.DataFrame:
         df = df.copy()
-        rows = df.to_dict("records")
-        recs = {}
-        total = len(rows)
+        rows      = df.to_dict("records")
+        recs      = {}
+        total     = len(rows)
+        ai_count  = 0
+        rb_count  = 0
 
         for i in range(0, total, self.batch_size):
             batch = rows[i:i + self.batch_size]
             if progress_callback:
                 progress_callback(
                     i / total,
-                    f"🤖 Agent 2 — DB: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
+                    f"🤖 Claude AI (Haiku) — DB: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
                 )
-            batch_recs = self._recommend_batch(batch, kind="DB")
+            batch_recs, used_ai = self._recommend_batch(batch, kind="DB")
             recs.update(batch_recs)
+            if used_ai:
+                ai_count += len(batch)
+            else:
+                rb_count += len(batch)
+                if progress_callback:
+                    progress_callback(i / total,
+                        f"⚠️ DB batch {i+1}–{min(i+self.batch_size,total)}: "
+                        f"Claude AI failed — rule-based fallback used")
 
         for idx, row in df.iterrows():
             key = f"{row['Database']} {row['Version']}"
@@ -123,11 +152,21 @@ class RecommendationAgent:
                 df.at[idx, "Recommendation"] = recs[key]
 
         if progress_callback:
-            progress_callback(1.0, f"✅ DB recommendations done — {len(df)} rows processed")
+            if rb_count == total:
+                progress_callback(1.0,
+                    f"❌ DB recs: Claude AI failed all batches — {rb_count} rows used rule-based. "
+                    f"Check API key quota.")
+            elif rb_count > 0:
+                progress_callback(1.0,
+                    f"⚠️ DB recs: Claude AI {ai_count} rows ✅ | Rule-based {rb_count} rows ⚠️")
+            else:
+                progress_callback(1.0,
+                    f"✅ DB recs complete — Claude AI analysed all {ai_count} rows")
         return df
 
     # ── Internal batch call ───────────────────────────────────────────────────
-    def _recommend_batch(self, batch: list, kind: str) -> dict:
+    def _recommend_batch(self, batch: list, kind: str) -> tuple:
+        """Returns (recs_dict, used_ai: bool)."""
         if kind == "OS":
             rows_text = "\n".join(
                 f"- {r.get('OS Version','?')} | Available: {r.get('Availability Date','')} "
@@ -139,9 +178,9 @@ class RecommendationAgent:
                 f"| Notes: {r.get('Notes','')}"
                 for r in batch
             )
-            prompt  = BATCH_PROMPT_OS.format(rows=rows_text)
-            system  = OS_SYSTEM
-            key_fn  = lambda r: r.get("OS Version", "")
+            prompt = BATCH_PROMPT_OS.format(rows=rows_text)
+            system = OS_SYSTEM
+            key_fn = lambda r: r.get("OS Version", "")
         else:
             rows_text = "\n".join(
                 f"- {r.get('Database','?')} {r.get('Version','?')} | Type: {r.get('Type','')} "
@@ -153,10 +192,11 @@ class RecommendationAgent:
                 f"| Notes: {r.get('Notes','')}"
                 for r in batch
             )
-            prompt  = BATCH_PROMPT_DB.format(rows=rows_text)
-            system  = DB_SYSTEM
-            key_fn  = lambda r: f"{r.get('Database','?')} {r.get('Version','?')}"
+            prompt = BATCH_PROMPT_DB.format(rows=rows_text)
+            system = DB_SYSTEM
+            key_fn = lambda r: f"{r.get('Database','?')} {r.get('Version','?')}"
 
+        # Attempt 1: Claude AI
         try:
             response = self.client.messages.create(
                 model=self.model,
@@ -169,11 +209,15 @@ class RecommendationAgent:
                 if fence in text:
                     text = text.split(fence, 1)[-1].split("```", 1)[0].strip()
                     break
-            return json.loads(text)
+            result = json.loads(text)
+            if result:
+                return result, True   # ✅ Claude AI succeeded
 
-        except Exception:
-            # Rule-based fallback for entire batch
-            return {key_fn(r): self._rule_based(r, kind) for r in batch}
+        except Exception as e:
+            self._last_error = str(e)
+
+        # Fallback: rule-based (AI failed)
+        return {key_fn(r): self._rule_based(r, kind) for r in batch}, False
 
     # ── Rule-based fallback ───────────────────────────────────────────────────
     def _rule_based(self, row: dict, kind: str) -> str:

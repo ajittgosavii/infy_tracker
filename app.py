@@ -698,6 +698,23 @@ with tab_a5:
 
         elif a5s == "done":
             st.success("✅ **Agent 5 complete!** Policy Recommendation + Verdict columns added to both tabs.")
+
+            # Show AI vs rule-based breakdown
+            os_df_now = st.session_state.os_df
+            db_df_now = st.session_state.db_df
+            if "Analysis Source" in os_df_now.columns or "Analysis Source" in db_df_now.columns:
+                ai_os = (os_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Claude AI").sum() if "Analysis Source" in os_df_now.columns else 0
+                rb_os = (os_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Rule-based").sum() if "Analysis Source" in os_df_now.columns else 0
+                ai_db = (db_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Claude AI").sum() if "Analysis Source" in db_df_now.columns else 0
+                rb_db = (db_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Rule-based").sum() if "Analysis Source" in db_df_now.columns else 0
+                total_ai = ai_os + ai_db
+                total_rb = rb_os + rb_db
+                if total_ai > 0:
+                    st.info(f"🤖 **Claude AI analysed {total_ai} rows** (OS: {ai_os}, DB: {ai_db})  "
+                            f"| 📐 Rule-based fallback: {total_rb} rows (OS: {rb_os}, DB: {rb_db})")
+                else:
+                    st.warning(f"⚠️ **Claude AI did not respond** — all {total_rb} rows used rule-based analysis. "
+                               f"Check your API key quota at console.anthropic.com")
             verdicts = ["CRITICAL","UPGRADE NOW","EXTEND + PLAN","REPLACE","CLOUD MIGRATE","MONITOR"]
             os_df_now = st.session_state.os_df
             db_df_now = st.session_state.db_df
