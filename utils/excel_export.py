@@ -88,14 +88,28 @@ def _write_sheet(ws, df: pd.DataFrame, title: str,
             ws.column_dimensions[cl].width = 22
         elif col in ("Upgrade", "Replace"):
             ws.column_dimensions[cl].width = 10
-        elif col in ("OS Version", "Database"):
-            ws.column_dimensions[cl].width = 26
+        elif col in ("OS Version", "Database", "Database Version"):
+            ws.column_dimensions[cl].width = 32
         else:
             max_len = max(len(col),
                           df[col].astype(str).str.len().max() if len(df) else 0)
             ws.column_dimensions[cl].width = min(max_len + 4, 38)
 
     ws.freeze_panes = "A3"
+
+
+def _merge_db_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Merge 'Database' and 'Version' into a single 'Database Version' column."""
+    if df.empty:
+        return df
+    df = df.copy()
+    # Create merged column
+    df.insert(0, "Database Version",
+              df["Database"].fillna("").str.strip() + " " +
+              df["Version"].fillna("").str.strip())
+    # Drop original separate columns
+    df.drop(columns=["Database", "Version"], inplace=True)
+    return df
 
 
 def export_to_excel(os_df: pd.DataFrame, db_df: pd.DataFrame,
@@ -114,9 +128,10 @@ def export_to_excel(os_df: pd.DataFrame, db_df: pd.DataFrame,
                  title=f"OS Versions — INFY Migration Reference  |  {ts}",
                  status_col=None, rec_col="Recommendation")
 
-    # Sheet 2 — DB Versions
+    # Sheet 2 — DB Versions (Database + Version merged into one column)
     ws_db = wb.create_sheet("DB Versions")
-    _write_sheet(ws_db, db_df,
+    db_merged = _merge_db_columns(db_df)
+    _write_sheet(ws_db, db_merged,
                  title=f"DB Versions — INFY Migration Reference  |  {ts}",
                  status_col="Status", rec_col="Recommendation")
 
@@ -206,7 +221,7 @@ def export_to_excel(os_df: pd.DataFrame, db_df: pd.DataFrame,
                          status_col=None, rec_col="Recommendation")
             # DB snapshot
             ws_snap_db = wb.create_sheet(f"{sheet_name[:26]} DB")
-            _write_sheet(ws_snap_db, snap["db_df"],
+            _write_sheet(ws_snap_db, _merge_db_columns(snap["db_df"]),
                          title=f"DB Snapshot — {snap['label']}",
                          status_col="Status", rec_col="Recommendation")
 
