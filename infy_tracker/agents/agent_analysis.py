@@ -242,14 +242,19 @@ class PolicyAnalysisAgent:
         ])
 
         if needs_search:
-            # Use Responses API with web search for real-time data
-            response = self.client.responses.create(
-                model=self.search_model,
-                instructions=CONVERSATION_SYSTEM,
-                tools=[{"type": "web_search_preview"}],
-                input=input_text
+            # Use chat completions with search-optimized prompt
+            search_prompt = (
+                f"{CONVERSATION_SYSTEM}\n\n"
+                f"The user is asking about costs, pricing, or real-time data. "
+                f"Provide the most accurate and up-to-date information you have."
             )
-            return (response.output_text or "").strip()
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=800,
+                messages=[{"role": "system", "content": search_prompt}] +
+                          ([{"role": "user", "content": input_text}] if input_text else [])
+            )
+            return response.choices[0].message.content.strip()
         else:
             # Use chat completions for normal conversation (faster, cheaper)
             response = self.client.chat.completions.create(
@@ -331,16 +336,19 @@ class PolicyAnalysisAgent:
             if progress_cb:
                 progress_cb(i / n, f"🔍 Searching live pricing: {vendor}...")
             try:
-                resp = self.client.responses.create(
-                    model=self.search_model,
-                    tools=[{"type": "web_search_preview"}],
-                    input=(
-                        f"Search for: {query}\n\n"
-                        f"Return a 2-3 sentence summary with SPECIFIC current prices and figures. "
-                        f"Include the source URL if available."
-                    )
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=300,
+                    messages=[
+                        {"role": "system", "content": "You are a pricing research assistant. Provide specific current prices and figures."},
+                        {"role": "user", "content": (
+                            f"Search for: {query}\n\n"
+                            f"Return a 2-3 sentence summary with SPECIFIC current prices and figures. "
+                            f"Include the source URL if available."
+                        )}
+                    ]
                 )
-                result = (resp.output_text or "").strip()
+                result = (resp.choices[0].message.content or "").strip()
                 costs[vendor] = result if result else "Could not retrieve live pricing."
             except Exception as ex:
                 fallbacks = {

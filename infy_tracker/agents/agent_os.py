@@ -145,14 +145,17 @@ Return ONLY a JSON object (no markdown):
 Only include entries where you found CONFIRMED current data from official sources.
 If nothing has changed from known dates, return an empty changes array."""
 
-        # OpenAI Responses API with web_search_preview tool
-        response = self.client.responses.create(
+        # Use chat completions API
+        response = self.client.chat.completions.create(
             model=self.model,
-            tools=[{"type": "web_search_preview"}],
-            input=prompt
+            max_tokens=1500,
+            messages=[
+                {"role": "system", "content": "You are an IT lifecycle research assistant. Provide accurate EOL and lifecycle data in the requested JSON format."},
+                {"role": "user", "content": prompt}
+            ]
         )
 
-        text = response.output_text or ""
+        text = response.choices[0].message.content or ""
 
         try:
             clean = text.strip()
