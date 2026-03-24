@@ -22,15 +22,32 @@ import sys, os, importlib.util, types
 _HERE = os.path.abspath(os.path.dirname(__file__))
 
 def _load(module_name: str, rel_path: str):
-    """Load a module from a path relative to app.py, cache in sys.modules."""
+    """
+    Load a module from an absolute path, cache in sys.modules only after
+    successful execution. If a previously cached module has no useful attrs
+    (broken partial load), re-execute it.
+    """
     abs_path = os.path.join(_HERE, rel_path)
-    # If already loaded and file hasn't changed, reuse
+
+    # Check if already cached — but verify it's not a broken partial load
     if module_name in sys.modules:
-        return sys.modules[module_name]
+        cached = sys.modules[module_name]
+        # A properly loaded module will have __file__ set
+        if getattr(cached, "__file__", None):
+            return cached
+        # Cached but broken — remove and reload
+        del sys.modules[module_name]
+
     spec   = importlib.util.spec_from_file_location(module_name, abs_path)
     module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
+    module.__file__ = abs_path   # mark before exec so circular imports work
+    try:
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    except Exception:
+        # Remove broken module from cache so next attempt reloads cleanly
+        sys.modules.pop(module_name, None)
+        raise
     return module
 
 # Ensure parent packages exist as empty namespace packages so sub-modules
