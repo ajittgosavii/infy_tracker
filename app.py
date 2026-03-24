@@ -326,6 +326,7 @@ if run_a2:
         st.stop()
 
     # ── Checkpoint 2: OS Recommendations ─────────────────────────────────────
+    agent2 = RecommendationAgent(api_key=api_key)   # ← instantiate here
     chk2 = st.empty()
     chk2.info(f"🧠 **Checkpoint 2/4** — OpenAI generating OS recommendations "
               f"({len(st.session_state.os_df)} rows, batches of 20)...")
@@ -346,8 +347,7 @@ if run_a2:
     except Exception as e:
         chk2.error(f"❌ **Checkpoint 2/4 FAILED** — OS recommendations error: `{e}`")
         st.session_state.a2_status = "error"
-
-    # ── Checkpoint 3: DB Recommendations ─────────────────────────────────────
+        st.stop()
     chk3 = st.empty()
     chk3.info(f"🧠 **Checkpoint 3/4** — OpenAI generating DB recommendations "
               f"({len(st.session_state.db_df)} rows, batches of 20)...")
@@ -368,9 +368,9 @@ if run_a2:
     except Exception as e:
         chk3.error(f"❌ **Checkpoint 3/4 FAILED** — DB recommendations error: `{e}`")
         st.session_state.a2_status = "error"
+        st.stop()
 
     # ── Checkpoint 4: Summary ─────────────────────────────────────────────────
-    if st.session_state.a2_status != "error":
         os_filled = (st.session_state.os_df["Recommendation"] != "").sum()
         db_filled = (st.session_state.db_df["Recommendation"] != "").sum()
         total     = os_filled + db_filled
@@ -544,7 +544,7 @@ with tab_status:
 - Status: `{s1.upper()}`
 - Baseline: **{len(OS_DATA)} OS + {len(DB_DATA)} DB** rows pre-loaded from OpenAI knowledge
 - Task: Checks internet for lifecycle date changes only
-- Tool: gpt-4o-mini-search-preview + web\_search\_preview (16 targeted checks)
+- Tool: `gpt-4o-mini-search-preview` + `web_search_preview` (16 targeted checks)
 - Updates: Notes column with [Web verified: date]""")
 
     s2 = st.session_state.a2_status
