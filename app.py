@@ -112,16 +112,18 @@ st.markdown("""
 # ── Session state ─────────────────────────────────────────────────────────────
 def _init():
     defaults = {
-        "os_df":         pd.DataFrame(columns=OS_COLUMNS),
-        "db_df":         pd.DataFrame(columns=DB_COLUMNS),
-        "last_refresh":  None,
-        "a1_status":     "idle",
-        "a1_phase":      "idle",   # idle | fetching_os | fetching_db | done | error
-        "a2_status":     "idle",
-        "changes_log":   [],
-        "old_os_df":     None,
-        "old_db_df":     None,
-        "a3_skip_until": None,
+        "os_df":          pd.DataFrame(columns=OS_COLUMNS),
+        "db_df":          pd.DataFrame(columns=DB_COLUMNS),
+        "last_refresh":   None,
+        "a1_status":      "idle",
+        "a1_phase":       "idle",
+        "a2_status":      "idle",
+        "changes_log":    [],
+        "old_os_df":      None,
+        "old_db_df":      None,
+        "a3_skip_until":  None,
+        "os_row_count":   None,   # persists through rerun for debug banner
+        "db_row_count":   None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -258,6 +260,20 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ── Persistent last-run row counts (survives st.rerun) ────────────────────────
+_os_rc = st.session_state.get("os_row_count")
+_db_rc = st.session_state.get("db_row_count")
+if _os_rc is not None or _db_rc is not None:
+    _os_display = f"**{_os_rc} OS versions**" if _os_rc else "**0 OS versions**"
+    _db_display = f"**{_db_rc} DB versions**" if _db_rc else "**0 DB versions**"
+    if (_os_rc or 0) + (_db_rc or 0) > 0:
+        st.success(f"✅ Last Agent 1 run fetched {_os_display} and {_db_display}. "
+                   f"Browse the tabs below.")
+    else:
+        st.warning("⚠️ Last Agent 1 run completed but returned 0 rows. "
+                   "This usually means the API key ran out of quota or web_search was unavailable. "
+                   "Try running Agent 1 again.")
+
 
 # ── Agent 3 refresh banner ────────────────────────────────────────────────────
 skip_until = st.session_state.get("a3_skip_until")
@@ -306,8 +322,9 @@ if run_a1:
 
     try:
         new_os = agent1.fetch_all_os_data(progress_callback=a1_os_cb)
-        st.session_state.os_df    = new_os
-        st.session_state.a1_phase = "fetching_db"
+        st.session_state.os_df      = new_os
+        st.session_state.os_row_count = len(new_os)   # persist through rerun
+        st.session_state.a1_phase   = "fetching_db"
         os_status.caption(f"✅ OS fetch complete — **{len(new_os)} versions** across all OS families")
     except Exception as e:
         st.error(f"❌ OS fetch error: {e}")
@@ -325,8 +342,9 @@ if run_a1:
 
         try:
             new_db = agent1.fetch_all_db_data(progress_callback=a1_db_cb)
-            st.session_state.db_df    = new_db
-            st.session_state.a1_phase = "done"
+            st.session_state.db_df      = new_db
+            st.session_state.db_row_count = len(new_db)   # persist through rerun
+            st.session_state.a1_phase   = "done"
             db_status.caption(f"✅ DB fetch complete — **{len(new_db)} versions** across all DB products")
         except Exception as e:
             st.error(f"❌ DB fetch error: {e}")

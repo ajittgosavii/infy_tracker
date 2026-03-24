@@ -671,24 +671,81 @@ class OSDataAgent:
         return []
 
     def _parse_json_array(self, text: str) -> list:
+        """
+        Robust JSON array parser — tries multiple strategies in order:
+        1. Strip markdown fences, find [ ... ] boundaries, parse
+        2. Try parsing the whole response as JSON (handles wrapped objects)
+        3. Find any line starting with [ and parse from there
+        4. Fix common issues (trailing commas, single quotes) and retry
+        """
+        if not text or not text.strip():
+            return []
+
         text = text.strip()
+
+        # Strategy 1: Strip markdown code fences
         for fence in ("```json", "```"):
             if fence in text:
                 parts = text.split(fence, 1)
-                text = parts[1]
+                text  = parts[1]
                 if "```" in text:
                     text = text.split("```", 1)[0]
                 text = text.strip()
                 break
+
+        # Strategy 2: Find outermost [ ... ] array boundaries
         start = text.find("[")
         end   = text.rfind("]")
         if start != -1 and end != -1 and end > start:
-            text = text[start:end+1]
+            candidate = text[start:end+1]
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, list) and data:
+                    return data
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 3: Try parsing whole text as JSON (might be {"versions":[...]} etc.)
         try:
             data = json.loads(text)
-            return data if isinstance(data, list) else []
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                # Look for any list value
+                for v in data.values():
+                    if isinstance(v, list) and v:
+                        return v
         except json.JSONDecodeError:
-            return []
+            pass
+
+        # Strategy 4: Find first line that starts with [ and parse from there
+        for line in text.split("\n"):
+            line = line.strip()
+            if line.startswith("["):
+                end_idx = text.rfind("]", text.find(line))
+                if end_idx != -1:
+                    try:
+                        data = json.loads(text[text.find(line):end_idx+1])
+                        if isinstance(data, list) and data:
+                            return data
+                    except Exception:
+                        pass
+
+        # Strategy 5: Fix common JSON issues — trailing commas, single quotes
+        if "[" in text and "]" in text:
+            try:
+                import re
+                fixed = text[text.find("["):text.rfind("]")+1]
+                fixed = re.sub(r",\s*]", "]", fixed)   # trailing commas before ]
+                fixed = re.sub(r",\s*}", "}", fixed)    # trailing commas before }
+                fixed = fixed.replace("'", '"')          # single → double quotes
+                data  = json.loads(fixed)
+                if isinstance(data, list) and data:
+                    return data
+            except Exception:
+                pass
+
+        return []
 
     # ── Change detection ──────────────────────────────────────────────────────
     def detect_os_changes(self, old_df: pd.DataFrame, new_df: pd.DataFrame) -> list:
