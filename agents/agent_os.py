@@ -1,15 +1,13 @@
 """
 Agent 1: Internet Change Verifier
 ==================================
-The baseline_data.py already contains ALL known OS and DB versions from
-Claude's training knowledge (149 OS + 172 DB = 321 rows).
+The baseline_data.py already contains ALL known OS and DB versions.
+Agent 1's ONLY job is to check internet for lifecycle date changes.
 
-Agent 1's ONLY job is to go to the internet and check whether any
-lifecycle dates have changed since the baseline was last updated.
-It updates the Notes column with "[Web verified: date]" when it finds changes.
+Uses OpenAI gpt-4o-mini-search-preview (Responses API with web_search_preview).
 """
 
-import anthropic
+from openai import OpenAI
 import json
 from datetime import datetime
 
@@ -56,8 +54,8 @@ DB_CHECK_TARGETS = [
 
 class OSDataAgent:
     def __init__(self, api_key: str):
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model  = "claude-sonnet-4-6"   # sonnet supports web_search tool
+        self.client = OpenAI(api_key=api_key)
+        self.model  = "gpt-4o-mini-search-preview"   # OpenAI web search model
         self.today  = datetime.now().strftime("%d %B %Y")
 
     def fetch_updates(self, progress_callback=None) -> dict:
@@ -78,7 +76,7 @@ class OSDataAgent:
             if progress_callback:
                 progress_callback(
                     idx / total,
-                    f"🔍 Calling Claude AI + web_search: {family}  ({idx+1}/{total})"
+                    f"🔍 Calling OpenAI + web_search: {family}  ({idx+1}/{total})"
                 )
             try:
                 result = self._check_changes(kind, family, query)
@@ -103,21 +101,21 @@ class OSDataAgent:
                 if progress_callback:
                     progress_callback(
                         (idx+1) / total,
-                        f"⚠️ {family}: Claude AI error — {err_msg}"
+                        f"⚠️ {family}: OpenAI error — {err_msg}"
                     )
 
         if progress_callback:
             if ai_failed == total:
                 progress_callback(1.0,
-                    f"❌ Agent 1 complete — Claude AI failed all {total} checks. "
-                    f"Verify API key at console.anthropic.com")
+                    f"❌ Agent 1 complete — OpenAI failed all {total} checks. "
+                    f"Verify API key at platform.openai.com/usage")
             elif ai_failed > 0:
                 progress_callback(1.0,
-                    f"⚠️ Agent 1 complete — Claude AI: {ai_success} succeeded, "
+                    f"⚠️ Agent 1 complete — OpenAI: {ai_success} succeeded, "
                     f"{ai_failed} failed. {len([u for u in updates.values() if u.get('changes')])} families updated.")
             else:
                 progress_callback(1.0,
-                    f"✅ Agent 1 complete — Claude AI ran {ai_success} web checks. "
+                    f"✅ Agent 1 complete — OpenAI ran {ai_success} web checks. "
                     f"{len([u for u in updates.values() if u.get('changes')])} families had date changes.")
 
         return updates
@@ -147,17 +145,14 @@ Return ONLY a JSON object (no markdown):
 Only include entries where you found CONFIRMED current data from official sources.
 If nothing has changed from known dates, return an empty changes array."""
 
-        response = self.client.messages.create(
+        # OpenAI Responses API with web_search_preview tool
+        response = self.client.responses.create(
             model=self.model,
-            max_tokens=2000,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=[{"role": "user", "content": prompt}]
+            tools=[{"type": "web_search_preview"}],
+            input=prompt
         )
 
-        text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                text += block.text
+        text = response.output_text or ""
 
         try:
             clean = text.strip()

@@ -1,10 +1,10 @@
 """
 Agent 2: AI Recommendation Engine
-Generates expert migration recommendations for every OS and DB row
-using Claude AI. Operates on whatever data Agent 1 fetched — no hardcoding.
+Generates expert migration recommendations for every OS and DB row.
+Uses OpenAI gpt-4o-mini (cheap, fast, no tools needed).
 """
 
-import anthropic
+from openai import OpenAI
 import json
 import pandas as pd
 from datetime import datetime
@@ -68,8 +68,8 @@ Expected format:
 
 class RecommendationAgent:
     def __init__(self, api_key: str):
-        self.client     = anthropic.Anthropic(api_key=api_key)
-        self.model      = "claude-haiku-4-5-20251001"
+        self.client     = OpenAI(api_key=api_key)
+        self.model      = "gpt-4o-mini"   # cheap, fast, no tools needed
         self.batch_size = 20
 
     # ── OS recommendations ────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ class RecommendationAgent:
             if progress_callback:
                 progress_callback(
                     i / total,
-                    f"🤖 Claude AI (Haiku) — OS: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
+                    f"🤖 OpenAI (gpt-4o-mini) — OS: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
                 )
             batch_recs, used_ai = self._recommend_batch(batch, kind="OS")
             recs.update(batch_recs)
@@ -98,7 +98,7 @@ class RecommendationAgent:
                 if progress_callback:
                     progress_callback(i / total,
                         f"⚠️ OS batch {i+1}–{min(i+self.batch_size,total)}: "
-                        f"Claude AI failed — rule-based fallback used")
+                        f"OpenAI failed — rule-based fallback used")
 
         for idx, row in df.iterrows():
             key = row["OS Version"]
@@ -108,14 +108,14 @@ class RecommendationAgent:
         if progress_callback:
             if rb_count == total:
                 progress_callback(1.0,
-                    f"❌ OS recs: Claude AI failed all batches — {rb_count} rows used rule-based. "
+                    f"❌ OS recs: OpenAI failed all batches — {rb_count} rows used rule-based. "
                     f"Check API key quota.")
             elif rb_count > 0:
                 progress_callback(1.0,
-                    f"⚠️ OS recs: Claude AI {ai_count} rows ✅ | Rule-based {rb_count} rows ⚠️")
+                    f"⚠️ OS recs: OpenAI {ai_count} rows ✅ | Rule-based {rb_count} rows ⚠️")
             else:
                 progress_callback(1.0,
-                    f"✅ OS recs complete — Claude AI analysed all {ai_count} rows")
+                    f"✅ OS recs complete — OpenAI analysed all {ai_count} rows")
         return df
 
     # ── DB recommendations ────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ class RecommendationAgent:
             if progress_callback:
                 progress_callback(
                     i / total,
-                    f"🤖 Claude AI (Haiku) — DB: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
+                    f"🤖 OpenAI (gpt-4o-mini) — DB: rows {i+1}–{min(i+self.batch_size, total)} of {total}"
                 )
             batch_recs, used_ai = self._recommend_batch(batch, kind="DB")
             recs.update(batch_recs)
@@ -144,7 +144,7 @@ class RecommendationAgent:
                 if progress_callback:
                     progress_callback(i / total,
                         f"⚠️ DB batch {i+1}–{min(i+self.batch_size,total)}: "
-                        f"Claude AI failed — rule-based fallback used")
+                        f"OpenAI failed — rule-based fallback used")
 
         for idx, row in df.iterrows():
             key = f"{row['Database']} {row['Version']}"
@@ -154,14 +154,14 @@ class RecommendationAgent:
         if progress_callback:
             if rb_count == total:
                 progress_callback(1.0,
-                    f"❌ DB recs: Claude AI failed all batches — {rb_count} rows used rule-based. "
+                    f"❌ DB recs: OpenAI failed all batches — {rb_count} rows used rule-based. "
                     f"Check API key quota.")
             elif rb_count > 0:
                 progress_callback(1.0,
-                    f"⚠️ DB recs: Claude AI {ai_count} rows ✅ | Rule-based {rb_count} rows ⚠️")
+                    f"⚠️ DB recs: OpenAI {ai_count} rows ✅ | Rule-based {rb_count} rows ⚠️")
             else:
                 progress_callback(1.0,
-                    f"✅ DB recs complete — Claude AI analysed all {ai_count} rows")
+                    f"✅ DB recs complete — OpenAI analysed all {ai_count} rows")
         return df
 
     # ── Internal batch call ───────────────────────────────────────────────────
@@ -196,22 +196,24 @@ class RecommendationAgent:
             system = DB_SYSTEM
             key_fn = lambda r: f"{r.get('Database','?')} {r.get('Version','?')}"
 
-        # Attempt 1: Claude AI
+        # Attempt: OpenAI Chat Completions API
         try:
-            response = self.client.messages.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=4096,
-                system=system,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": prompt}
+                ]
             )
-            text = response.content[0].text.strip()
+            text = response.choices[0].message.content.strip()
             for fence in ("```json", "```"):
                 if fence in text:
                     text = text.split(fence, 1)[-1].split("```", 1)[0].strip()
                     break
             result = json.loads(text)
             if result:
-                return result, True   # ✅ Claude AI succeeded
+                return result, True   # ✅ OpenAI succeeded
 
         except Exception as e:
             self._last_error = str(e)

@@ -146,14 +146,14 @@ def export_to_excel(os_df: pd.DataFrame, db_df: pd.DataFrame,
         ("DB Versions (rows)",  str(len(db_df))),
         ("Project Window",      "1 April 2026 → 30 June 2028"),
         ("", ""),
-        ("Agent 1", "Fetches ALL OS & DB lifecycle data live from the web via Claude AI (no hardcoded data)"),
-        ("Agent 2", "Generates expert AI recommendations per row — Claude claude-opus-4-20250514"),
+        ("Agent 1", "Fetches ALL OS & DB lifecycle data live from the web via OpenAI (no hardcoded data)"),
+        ("Agent 2", "Generates expert AI recommendations per row — OpenAI gpt-4o-mini"),
         ("Agent 3", "14-day refresh monitor — seeks permission before re-running"),
         ("Agent 4", "Version Guardian — snapshots data before every refresh"),
         ("Agent 5", "Policy Analysis — org interview → guiding principles → cost data → verdicts"),
         ("", ""),
-        ("AI Model",    "Claude claude-opus-4-20250514 (Anthropic)"),
-        ("Data Source", "Live web search via Claude AI — Microsoft, Red Hat, Ubuntu, Oracle, postgresql.org and others"),
+        ("AI Model",    "OpenAI gpt-4o-mini (OpenAI)"),
+        ("Data Source", "Live web search via OpenAI — Microsoft, Red Hat, Ubuntu, Oracle, postgresql.org and others"),
     ]
 
     ws_s.column_dimensions["A"].width = 30

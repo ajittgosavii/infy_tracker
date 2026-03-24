@@ -3,10 +3,10 @@ INFY Migration Version Lifecycle Tracker
 5-Agent Streamlit Application — Infosys Enterprise Architecture
 
 Core design:
-- baseline_data.py holds ALL 321 OS/DB rows from Claude's training knowledge
+- baseline_data.py holds ALL 321 OS/DB rows from AI training knowledge
 - Data is visible IMMEDIATELY on app load — no waiting for Agent 1
 - Agent 1 checks internet for date changes and updates Notes column
-- Agent 2 fills Recommendation column via Claude AI
+- Agent 2 fills Recommendation column via OpenAI
 - Agent 3 refreshes every 14 days with permission
 - Agent 4 snapshots data before every refresh
 - Agent 5 interactive policy analysis → guiding principles → verdicts
@@ -70,7 +70,7 @@ st.set_page_config(
     page_icon="🖥️",
     layout="wide",
     initial_sidebar_state="expanded",
-    menu_items={"About": "INFY Migration Version Lifecycle Tracker — Powered by Claude AI (Anthropic)"}
+    menu_items={"About": "INFY Migration Version Lifecycle Tracker — Powered by OpenAI GPT"}
 )
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -140,15 +140,15 @@ with st.sidebar:
         st.markdown("### INFY")
     st.divider()
 
-    st.subheader("🔑 Anthropic API Key")
-    api_key = st.text_input("Enter your API key", type="password", placeholder="sk-ant-...",
-                             help="Set ANTHROPIC_API_KEY in Streamlit Cloud Secrets.")
+    st.subheader("🔑 OpenAI API Key")
+    api_key = st.text_input("Enter your API key", type="password", placeholder="sk-...",
+                             help="Set OPENAI_API_KEY in Streamlit Cloud Secrets.")
     if not api_key:
-        try: api_key = st.secrets["ANTHROPIC_API_KEY"]
+        try: api_key = st.secrets["OPENAI_API_KEY"]
         except Exception: pass
 
-    key_ok = bool(api_key and api_key.startswith("sk-ant"))
-    if api_key and not key_ok: st.error("⚠️ Key must start with sk-ant-")
+    key_ok = bool(api_key and api_key.startswith("sk-"))
+    if api_key and not key_ok: st.error("⚠️ Key must start with sk-")
     elif key_ok: st.success("✅ API key ready")
     st.divider()
 
@@ -158,7 +158,7 @@ with st.sidebar:
     <b>🔍 Agent 1 — Internet Change Checker</b><br>{badge(s1)}
     <small style="display:block;margin-top:4px;color:#666">
     Checks internet for lifecycle date changes.<br>
-    Data pre-loaded from Claude knowledge base<br>
+    Data pre-loaded from OpenAI knowledge base<br>
     ({len(OS_DATA)} OS + {len(DB_DATA)} DB = {len(OS_DATA)+len(DB_DATA)} entries)</small>
     </div>""", unsafe_allow_html=True)
     run_a1 = st.button("▶ Run Agent 1 — Check for Updates", width="stretch", disabled=not key_ok)
@@ -170,7 +170,7 @@ with st.sidebar:
     st.markdown(f"""<div class="agent-card a2">
     <b>🤖 Agent 2 — Recommendation Engine</b><br>{badge(s2)}
     <small style="display:block;margin-top:4px;color:#666">
-    Claude AI fills Recommendation column for all rows</small>
+    OpenAI fills Recommendation column for all rows</small>
     </div>""", unsafe_allow_html=True)
     run_a2 = st.button("▶ Run Agent 2 — Generate Recommendations", width="stretch", disabled=not key_ok)
     st.divider()
@@ -211,8 +211,8 @@ st.markdown("""
 <div class="infy-header">
   <h1>🖥️ INFY Migration Version Lifecycle Tracker</h1>
   <p>Infosys Enterprise Architecture &nbsp;·&nbsp;
-     Powered by Claude AI (Anthropic) &nbsp;·&nbsp;
-     Pre-loaded: 149 OS versions + 172 DB versions from Claude knowledge base &nbsp;·&nbsp;
+     Powered by OpenAI GPT &nbsp;·&nbsp;
+     Pre-loaded: 149 OS versions + 172 DB versions from AI knowledge base &nbsp;·&nbsp;
      Agent 1 verifies date changes from the internet &nbsp;·&nbsp;
      Project: Apr 2026 → Jun 2028</p>
 </div>
@@ -304,30 +304,30 @@ if run_a2:
     # ── Checkpoint 1: Pre-flight ──────────────────────────────────────────────
     st.markdown("### 🤖 Agent 2 — Recommendation Engine")
     chk1 = st.empty()
-    chk1.info("🔌 **Checkpoint 1/4** — Testing Claude Haiku API connection...")
+    chk1.info("🔌 **Checkpoint 1/4** — Testing OpenAI gpt-4o-mini API connection...")
 
-    import anthropic as _anthro2
     try:
-        _c2    = _anthro2.Anthropic(api_key=api_key)
-        _r2    = _c2.messages.create(
-            model="claude-haiku-4-5-20251001",
+        from openai import OpenAI as _OAI2
+        _c2    = _OAI2(api_key=api_key)
+        _r2    = _c2.chat.completions.create(
+            model="gpt-4o-mini",
             max_tokens=20,
             messages=[{"role": "user", "content": "Reply with one word: READY"}]
         )
-        _reply2 = _r2.content[0].text.strip()
-        chk1.success(f"✅ **Checkpoint 1/4 PASSED** — Claude Haiku connected. Response: **{_reply2}**")
+        _reply2 = _r2.choices[0].message.content.strip()
+        chk1.success(f"✅ **Checkpoint 1/4 PASSED** — OpenAI gpt-4o-mini connected. Response: **{_reply2}**")
     except Exception as _ex2:
         chk1.error(
-            f"❌ **Checkpoint 1/4 FAILED** — Claude API not reachable.\n\n"
+            f"❌ **Checkpoint 1/4 FAILED** — OpenAI API not reachable.\n\n"
             f"**Error:** `{str(_ex2)}`\n\n"
-            f"Check API key and quota at console.anthropic.com"
+            f"Check API key and quota at platform.openai.com/usage"
         )
         st.session_state.a2_status = "error"
         st.stop()
 
     # ── Checkpoint 2: OS Recommendations ─────────────────────────────────────
     chk2 = st.empty()
-    chk2.info(f"🧠 **Checkpoint 2/4** — Claude AI generating OS recommendations "
+    chk2.info(f"🧠 **Checkpoint 2/4** — OpenAI generating OS recommendations "
               f"({len(st.session_state.os_df)} rows, batches of 20)...")
     os_prog = st.progress(0, text="Processing OS rows...")
     os_live = st.empty()
@@ -349,7 +349,7 @@ if run_a2:
 
     # ── Checkpoint 3: DB Recommendations ─────────────────────────────────────
     chk3 = st.empty()
-    chk3.info(f"🧠 **Checkpoint 3/4** — Claude AI generating DB recommendations "
+    chk3.info(f"🧠 **Checkpoint 3/4** — OpenAI generating DB recommendations "
               f"({len(st.session_state.db_df)} rows, batches of 20)...")
     db_prog = st.progress(0, text="Processing DB rows...")
     db_live = st.empty()
@@ -378,7 +378,7 @@ if run_a2:
             f"✅ **Checkpoint 4/4 — Agent 2 COMPLETE** | "
             f"OS: {os_filled}/{len(st.session_state.os_df)} rows | "
             f"DB: {db_filled}/{len(st.session_state.db_df)} rows | "
-            f"Total: **{total} recommendations generated by Claude AI**"
+            f"Total: **{total} recommendations generated by OpenAI**"
         )
         st.session_state.a2_status = "done"
         if st.session_state.last_refresh is None:
@@ -542,9 +542,9 @@ with tab_status:
         icon1 = {"idle":"⚪","running":"🔵","done":"✅","error":"❌"}.get(s1,"⚪")
         st.markdown(f"""**{icon1} Agent 1 — Internet Change Checker**
 - Status: `{s1.upper()}`
-- Baseline: **{len(OS_DATA)} OS + {len(DB_DATA)} DB** rows pre-loaded from Claude knowledge
+- Baseline: **{len(OS_DATA)} OS + {len(DB_DATA)} DB** rows pre-loaded from OpenAI knowledge
 - Task: Checks internet for lifecycle date changes only
-- Tool: claude-sonnet-4-6 + web\\_search (16 targeted checks)
+- Tool: gpt-4o-mini-search-preview + web\_search\_preview (16 targeted checks)
 - Updates: Notes column with [Web verified: date]""")
 
     s2 = st.session_state.a2_status
@@ -552,7 +552,7 @@ with tab_status:
         icon2 = {"idle":"⚪","running":"🔵","done":"✅","error":"❌"}.get(s2,"⚪")
         st.markdown(f"""**{icon2} Agent 2 — Recommendation Engine**
 - Status: `{s2.upper()}`
-- Tool: claude-haiku-4-5-20251001 (cost-efficient)
+- Tool: gpt-4o-mini (cost-efficient)
 - Batch: 20 rows per API call
 - Rules: EOL→CRITICAL, Expiring→URGENT, Supported→PLAN
 - Oracle: flags PostgreSQL migration savings""")
@@ -598,10 +598,10 @@ with tab_status:
     st.divider()
     st.subheader("📖 How to Use")
     st.markdown(f"""
-**Data is pre-loaded** — {len(OS_DATA)} OS versions and {len(DB_DATA)} DB versions are visible immediately from Claude's knowledge base.
+**Data is pre-loaded** — {len(OS_DATA)} OS versions and {len(DB_DATA)} DB versions are visible immediately from AI knowledge base.
 
-1. **Enter your Anthropic API key** in the sidebar (or add `ANTHROPIC_API_KEY` to Streamlit Cloud Secrets)
-2. **Run Agent 2** — Claude AI fills expert recommendations for all {len(OS_DATA)+len(DB_DATA)} rows (recommended first step)
+1. **Enter your OpenAI API key** in the sidebar (or add `OPENAI_API_KEY` to Streamlit Cloud Secrets)
+2. **Run Agent 2** — OpenAI fills expert recommendations for all {len(OS_DATA)+len(DB_DATA)} rows (recommended first step)
 3. **Run Agent 1** — checks internet for any date changes since the baseline was created
 4. **Run Agent 5** (Policy Analysis tab) — policy interview → guiding principles → migration verdicts
 5. **Download Excel** — all data, colour-coded, with recommendations
@@ -630,7 +630,7 @@ with tab_a5:
     </div>""", unsafe_allow_html=True)
 
     if not key_ok:
-        st.warning("⚠️ Enter your Anthropic API key in the sidebar to use Agent 5.")
+        st.warning("⚠️ Enter your OpenAI API key in the sidebar to use Agent 5.")
     else:
         a5s = st.session_state.get("a5_status","idle")
         steps    = ["Policy Interview","Guiding Principles","Cost Intelligence","Analysis","Complete"]
@@ -671,7 +671,7 @@ with tab_a5:
 
         elif a5s == "principles":
             st.subheader("⚖️ Phase 2 — Generating Guiding Principles...")
-            with st.spinner("Claude is generating guiding principles..."):
+            with st.spinner("OpenAI is generating guiding principles..."):
                 agent5 = PolicyAnalysisAgent(api_key=api_key)
                 principles = agent5.generate_principles(st.session_state.a5_answers)
                 st.session_state.a5_principles = principles
@@ -753,20 +753,20 @@ with tab_a5:
 
             # ── Step 1: Pre-flight API test ───────────────────────────────────
             if not st.session_state.get("a5_preflight_done"):
-                _log("🔌", "**Step 1/4 — Testing Claude API connection...**")
-                import anthropic as _anthro
+                _log("🔌", "**Step 1/4 — Testing OpenAI API connection...**")
                 try:
-                    _client = _anthro.Anthropic(api_key=api_key)
-                    _resp   = _client.messages.create(
-                        model="claude-sonnet-4-6",
+                    from openai import OpenAI as _OAI
+                    _client = _OAI(api_key=api_key)
+                    _resp   = _client.chat.completions.create(
+                        model="gpt-4o-mini",
                         max_tokens=30,
                         messages=[{"role": "user", "content": "Reply with only the word: READY"}]
                     )
-                    _reply = _resp.content[0].text.strip()
-                    _log("✅", f"**Claude API connected** — `claude-sonnet-4-6` responded: **{_reply}**")
+                    _reply = _resp.choices[0].message.content.strip()
+                    _log("✅", f"**OpenAI API connected** — `gpt-4o-mini` responded: **{_reply}**")
                     st.session_state.a5_preflight_done = True
                 except Exception as _ex:
-                    _log("❌", f"**Claude API FAILED** — `{str(_ex)}`\n\nCheck: API key valid? Quota exhausted? Visit console.anthropic.com")
+                    _log("❌", f"**OpenAI API FAILED** — `{str(_ex)}`\n\nCheck: API key valid? Quota exhausted? Visit platform.openai.com/usage")
                     # Show updated log and stop
                     with log_box:
                         st.error(st.session_state.a5_log[-1])
@@ -779,7 +779,7 @@ with tab_a5:
                 principles = st.session_state.a5_principles
                 costs      = st.session_state.a5_costs
                 total_os   = len(st.session_state.os_df)
-                _log("🧠", f"**Step 2/4 — Claude AI analysing {total_os} OS entries** (batches of 15)...")
+                _log("🧠", f"**Step 2/4 — OpenAI analysing {total_os} OS entries** (batches of 15)...")
 
                 batch_log = st.empty()
                 ai_batches = 0
@@ -788,7 +788,7 @@ with tab_a5:
                 def os5_cb(pct, msg):
                     prog_bar.progress(min(pct * 0.5, 0.5), text=msg)
                     batch_log.info(f"⏳ {msg}")
-                    if "Claude AI:" in msg:
+                    if "OpenAI:" in msg:
                         # Extract counts from final summary message
                         pass
 
@@ -799,14 +799,14 @@ with tab_a5:
 
                 # Count results
                 if "Analysis Source" in new_os.columns:
-                    ai_c = (new_os["Analysis Source"] == "Claude AI").sum()
+                    ai_c = (new_os["Analysis Source"] == "OpenAI").sum()
                     rb_c = (new_os["Analysis Source"] == "Rule-based").sum()
                     if rb_c == 0:
-                        _log("✅", f"**OS Analysis complete** — Claude AI analysed all **{ai_c} OS rows** ✅")
+                        _log("✅", f"**OS Analysis complete** — OpenAI analysed all **{ai_c} OS rows** ✅")
                     elif ai_c == 0:
-                        _log("⚠️", f"**OS Analysis complete** — ⚠️ Claude AI failed all batches. Rule-based used for {rb_c} rows. Check quota.")
+                        _log("⚠️", f"**OS Analysis complete** — ⚠️ OpenAI failed all batches. Rule-based used for {rb_c} rows. Check quota.")
                     else:
-                        _log("⚠️", f"**OS Analysis complete** — Claude AI: {ai_c} rows ✅ | Rule-based fallback: {rb_c} rows ⚠️")
+                        _log("⚠️", f"**OS Analysis complete** — OpenAI: {ai_c} rows ✅ | Rule-based fallback: {rb_c} rows ⚠️")
                 else:
                     _log("✅", f"**OS Analysis complete** — {total_os} rows processed")
 
@@ -818,7 +818,7 @@ with tab_a5:
                 principles = st.session_state.a5_principles
                 costs      = st.session_state.a5_costs
                 total_db   = len(st.session_state.db_df)
-                _log("🧠", f"**Step 3/4 — Claude AI analysing {total_db} DB entries** (batches of 15)...")
+                _log("🧠", f"**Step 3/4 — OpenAI analysing {total_db} DB entries** (batches of 15)...")
 
                 batch_log2 = st.empty()
 
@@ -832,14 +832,14 @@ with tab_a5:
                 st.session_state.a5_db_done = True
 
                 if "Analysis Source" in new_db.columns:
-                    ai_c = (new_db["Analysis Source"] == "Claude AI").sum()
+                    ai_c = (new_db["Analysis Source"] == "OpenAI").sum()
                     rb_c = (new_db["Analysis Source"] == "Rule-based").sum()
                     if rb_c == 0:
-                        _log("✅", f"**DB Analysis complete** — Claude AI analysed all **{ai_c} DB rows** ✅")
+                        _log("✅", f"**DB Analysis complete** — OpenAI analysed all **{ai_c} DB rows** ✅")
                     elif ai_c == 0:
-                        _log("⚠️", f"**DB Analysis complete** — ⚠️ Claude AI failed all batches. Rule-based used for {rb_c} rows.")
+                        _log("⚠️", f"**DB Analysis complete** — ⚠️ OpenAI failed all batches. Rule-based used for {rb_c} rows.")
                     else:
-                        _log("⚠️", f"**DB Analysis complete** — Claude AI: {ai_c} rows ✅ | Rule-based fallback: {rb_c} rows ⚠️")
+                        _log("⚠️", f"**DB Analysis complete** — OpenAI: {ai_c} rows ✅ | Rule-based fallback: {rb_c} rows ⚠️")
                 else:
                     _log("✅", f"**DB Analysis complete** — {total_db} rows processed")
 
@@ -859,18 +859,18 @@ with tab_a5:
             os_df_now = st.session_state.os_df
             db_df_now = st.session_state.db_df
             if "Analysis Source" in os_df_now.columns or "Analysis Source" in db_df_now.columns:
-                ai_os = (os_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Claude AI").sum() if "Analysis Source" in os_df_now.columns else 0
+                ai_os = (os_df_now.get("Analysis Source", pd.Series(dtype=str)) == "OpenAI").sum() if "Analysis Source" in os_df_now.columns else 0
                 rb_os = (os_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Rule-based").sum() if "Analysis Source" in os_df_now.columns else 0
-                ai_db = (db_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Claude AI").sum() if "Analysis Source" in db_df_now.columns else 0
+                ai_db = (db_df_now.get("Analysis Source", pd.Series(dtype=str)) == "OpenAI").sum() if "Analysis Source" in db_df_now.columns else 0
                 rb_db = (db_df_now.get("Analysis Source", pd.Series(dtype=str)) == "Rule-based").sum() if "Analysis Source" in db_df_now.columns else 0
                 total_ai = ai_os + ai_db
                 total_rb = rb_os + rb_db
                 if total_ai > 0:
-                    st.info(f"🤖 **Claude AI analysed {total_ai} rows** (OS: {ai_os}, DB: {ai_db})  "
+                    st.info(f"🤖 **OpenAI analysed {total_ai} rows** (OS: {ai_os}, DB: {ai_db})  "
                             f"| 📐 Rule-based fallback: {total_rb} rows (OS: {rb_os}, DB: {rb_db})")
                 else:
-                    st.warning(f"⚠️ **Claude AI did not respond** — all {total_rb} rows used rule-based analysis. "
-                               f"Check your API key quota at console.anthropic.com")
+                    st.warning(f"⚠️ **OpenAI did not respond** — all {total_rb} rows used rule-based analysis. "
+                               f"Check your API key quota at platform.openai.com/usage")
             verdicts = ["CRITICAL","UPGRADE NOW","EXTEND + PLAN","REPLACE","CLOUD MIGRATE","MONITOR"]
             os_df_now = st.session_state.os_df
             db_df_now = st.session_state.db_df
@@ -912,7 +912,7 @@ with dl_col:
 st.markdown(
     "<p style='text-align:center;color:#94A3B8;font-size:0.72rem;margin-top:1.5rem;'>"
     "INFY Migration Reference Tracker · Infosys Enterprise Architecture · "
-    "Powered by Claude AI (Anthropic) · claude-sonnet-4-6 (A1/A5) · claude-haiku-4-5-20251001 (A2) · "
-    "All data from Claude knowledge base + internet verification</p>",
+    "Powered by OpenAI GPT · gpt-4o-mini-search-preview (A1) · gpt-4o-mini (A2/A5) · "
+    "All data from AI knowledge base + internet verification</p>",
     unsafe_allow_html=True
 )
