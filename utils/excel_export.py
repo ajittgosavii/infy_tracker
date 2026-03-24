@@ -212,17 +212,23 @@ def export_to_excel(os_df: pd.DataFrame, db_df: pd.DataFrame,
 
     # Sheet 6 — Version History (Agent 4)
     if version_history:
+        # Excel sheet names cannot contain: : \ / ? * [ ]
+        def _safe_sheet(name: str, suffix: str) -> str:
+            safe = name.replace(":", "").replace("\\", "").replace("/", "") \
+                       .replace("?", "").replace("*", "").replace("[", "").replace("]", "")
+            # Trim to fit Excel's 31-char limit with suffix
+            max_base = 31 - len(suffix) - 1
+            return f"{safe[:max_base]} {suffix}"
+
         for snap in version_history:
-            sheet_name = snap["label"][:31]  # Excel tab limit
-            # OS snapshot
-            ws_snap_os = wb.create_sheet(f"{sheet_name[:26]} OS")
+            label = snap["label"]
+            ws_snap_os = wb.create_sheet(_safe_sheet(label, "OS"))
             _write_sheet(ws_snap_os, snap["os_df"],
-                         title=f"OS Snapshot — {snap['label']}",
+                         title=f"OS Snapshot — {label}",
                          status_col=None, rec_col="Recommendation")
-            # DB snapshot
-            ws_snap_db = wb.create_sheet(f"{sheet_name[:26]} DB")
+            ws_snap_db = wb.create_sheet(_safe_sheet(label, "DB"))
             _write_sheet(ws_snap_db, _merge_db_columns(snap["db_df"]),
-                         title=f"DB Snapshot — {snap['label']}",
+                         title=f"DB Snapshot — {label}",
                          status_col="Status", rec_col="Recommendation")
 
     buf = io.BytesIO()
